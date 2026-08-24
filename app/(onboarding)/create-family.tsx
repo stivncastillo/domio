@@ -3,6 +3,7 @@ import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
+import { Link } from "expo-router";
 
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/useAuth";
@@ -44,19 +45,6 @@ export default function CreateFamilyScreen() {
     await queryClient.invalidateQueries({ queryKey: ["family-member", session?.user.id] });
   };
 
-  // DEBUG TEMPORAL: llama a la funcion debug_whoami() (ver instrucciones
-  // de Claude) para confirmar que rol/usuario ve Postgres en esta llamada.
-  // Borrar este handler y el boton de abajo una vez resuelto el bug de RLS.
-  const onDebugWhoAmI = async () => {
-    const { data, error } = await supabase.rpc("debug_whoami");
-    if (error) {
-      Alert.alert("Error llamando debug_whoami", error.message);
-      return;
-    }
-    const row = Array.isArray(data) ? data[0] : data;
-    Alert.alert("debug_whoami()", `uid: ${row?.uid ?? "null"}\nrole: ${row?.role ?? "null"}`);
-  };
-
   return (
     <View className="flex-1 justify-center bg-domio-bg px-6">
       <Text className="mb-1 text-3xl font-bold text-white">Crea tu Domio</Text>
@@ -84,7 +72,7 @@ export default function CreateFamilyScreen() {
       {errors.root && <Text className="mb-2 text-domio-danger">{errors.root.message}</Text>}
 
       <Pressable
-        className="mt-4 items-center rounded-xl bg-domio-primary py-3"
+        className="mb-6 mt-4 items-center rounded-xl bg-domio-primary py-3"
         disabled={isSubmitting}
         onPress={handleSubmit(onSubmit)}
       >
@@ -93,20 +81,11 @@ export default function CreateFamilyScreen() {
         </Text>
       </Pressable>
 
-      {/* DEBUG TEMPORAL — borrar despues de diagnosticar el error de RLS */}
-      <Pressable className="mt-4 items-center" onPress={onDebugWhoAmI}>
-        <Text className="text-domio-secondary">🔍 Ver mi sesión (debug)</Text>
-      </Pressable>
-
-      {/*
-        Util mientras desarrollamos/probamos: en este punto del flujo
-        (sesion activa, sin familia todavia) no hay tabs ni pantalla de
-        Perfil a la que ir, asi que sin esto quedarias sin forma de
-        volver al login desde la UI.
-      */}
-      <Pressable className="mt-6 items-center" onPress={() => supabase.auth.signOut()}>
-        <Text className="text-domio-muted">Cerrar sesión</Text>
-      </Pressable>
+      <Link href="/(onboarding)/join-family">
+        <Text className="mt-6 text-center text-domio-secondary">
+          ¿Tenés un código de invitación? Unite a una familia existente
+        </Text>
+      </Link>
     </View>
   );
 }

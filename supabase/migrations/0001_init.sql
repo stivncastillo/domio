@@ -243,13 +243,6 @@ create policy "Members can view their Domio's progress"
   to authenticated
   using (is_member_of_family(family_id));
 
--- ============================================================
--- Realtime: habilita que los cambios en estas tablas se transmitan
--- en vivo a los clientes suscritos (asi todos ven a Domi reaccionar
--- sin refrescar). Se configura desde el dashboard: Database -> Replication,
--- o descomentando estas lineas si tu proyecto ya tiene la publicacion
--- `supabase_realtime` creada por defecto:
---
--- alter publication supabase_realtime add table missions;
--- alter publication supabase_realtime add table mission_completions;
--- alter publication supabase_realtime add table domio_progress;
+-- Realtime: ver supabase/migrations/0007_enable_realtime.sql — ahi se
+-- agregan domio_progress, missions y family_members a la publicacion
+-- `supabase_realtime` (asi todos ven a Domi reaccionar sin refrescar).

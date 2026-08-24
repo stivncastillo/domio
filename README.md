@@ -26,7 +26,7 @@ raiz del repo) para el diseño completo de producto.
 app/                  Rutas (Expo Router). Cada archivo = una pantalla.
   _layout.tsx          Layout raiz: providers + decide (auth)/(onboarding)/(tabs)
   (auth)/               Login, registro
-  (onboarding)/          Crear familia (usuario logueado sin familia todavia)
+  (onboarding)/          Crear familia o unirse con codigo (usuario logueado sin familia todavia)
   (tabs)/               Dashboard, Misiones, Familia, Recompensas, Perfil
 components/
   ui/                   Componentes de UI genericos (Card, ProgressBar...)
@@ -40,9 +40,11 @@ types/
   database.ts             Tipos generados desde el schema de Supabase
 hooks/
   useAuth.ts              Hook de sesion (Supabase Auth)
-  useFamilyMember.ts       ¿El usuario logueado ya tiene familia?
+  useFamilyMember.ts       ¿El usuario logueado ya tiene familia? (para el ruteo)
+  useFamily.ts             Datos de la familia (nombre, invite_code) + lista de integrantes
   useMissions.ts           Listar/crear/completar misiones
   useDomioProgress.ts      Nivel y XP colectivo del Domio
+  useRealtimeSync.ts       Suscripcion a Supabase Realtime (ver seccion Realtime)
 supabase/
   migrations/
     0001_init.sql          Schema inicial (families, missions, XP, RLS de lectura...)
@@ -54,6 +56,12 @@ supabase/
     0005_remove_emoji.sql        Solo para instalaciones existentes: quita la
                                   columna emoji de missions/rewards — no hace
                                   falta en un proyecto de Supabase nuevo.
+    0006_invite_members.sql      RPC join_family + cierra el hueco de la policy
+                                  de INSERT en family_members. Este SÍ hace falta
+                                  en cualquier instalación (nueva o existente).
+    0007_enable_realtime.sql     Agrega domio_progress/missions/family_members a
+                                  la publicación supabase_realtime. También hace
+                                  falta en cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -75,12 +83,15 @@ instalado — es normal y recomendado correrlo despues de cualquier
 1. Crea una cuenta gratis en [supabase.com](https://supabase.com) y un
    proyecto nuevo (elige la region mas cercana, ej. `sa-east-1`).
 2. En **SQL Editor**, pega y ejecuta en orden el contenido de
-   `supabase/migrations/0001_init.sql`, `0002_onboarding.sql` y
-   `0003_missions.sql` (cada uno en una query nueva, en ese orden). Si
-   es un proyecto de Supabase nuevo, no corras `0004_rename_to_english.sql`
-   ni `0005_remove_emoji.sql` — ya no hacen falta, esos tres archivos ya
-   nacen con la nomenclatura en ingles y sin el campo emoji (ver
-   "Convencion de idioma" mas abajo).
+   `supabase/migrations/0001_init.sql`, `0002_onboarding.sql`,
+   `0003_missions.sql`, `0006_invite_members.sql` y
+   `0007_enable_realtime.sql` (cada uno en una query nueva, en ese
+   orden). Si es un proyecto de Supabase nuevo, no corras
+   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
+   hacen falta, esos tres primeros archivos ya nacen con la
+   nomenclatura en ingles y sin el campo emoji (ver "Convencion de
+   idioma" mas abajo). `0006` y `0007` sí corren siempre, en cualquier
+   instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -207,15 +218,57 @@ invalida la query `["family-member", userId]` y el router pasa solo a
   puede completar cualquier mision. Es la tabla que probablemente se
   use para la fase 2 de misiones familiares (subtareas por integrante).
 
+## Invitar miembros (implementado 2026-08-24)
+
+- Tab **Familia** (`app/(tabs)/family.tsx`): muestra el nombre del
+  Domio, el `invite_code` con un botón "Compartir código" (usa la API
+  nativa `Share` de React Native, sin dependencias nuevas) y la lista
+  de integrantes con su rol, nivel, XP y racha (`hooks/useFamily.ts`).
+- Pantalla de onboarding **`(onboarding)/join-family.tsx`**: quien no
+  tiene familia todavía puede, en vez de crear una, tipear un código y
+  unirse a una existente. Llama a la RPC `join_family`, que valida el
+  código y agrega al usuario como `member` (idempotente: tocar
+  "Unirme" dos veces no rompe nada). Hay links cruzados entre
+  `create-family.tsx` y `join-family.tsx` para pasar de una a la otra.
+- Se sacó la policy de INSERT que dejaba que cualquier usuario se
+  auto-agregara a *cualquier* `family_id` sin validar el código — un
+  hueco de seguridad que nunca hacía falta porque crear/unirse siempre
+  pasó (y sigue pasando) por funciones `security definer`. Ver
+  `0006_invite_members.sql` para el detalle.
+
+## Realtime (implementado 2026-08-24)
+
+- `0007_enable_realtime.sql` agrega `domio_progress`, `missions` y
+  `family_members` a la publicación `supabase_realtime` de Postgres —
+  sin esto, los cambios ni siquiera quedan disponibles para que
+  Realtime los transmita, sin importar qué haga el cliente.
+- `hooks/useRealtimeSync.ts`: un solo `channel` de Supabase (un solo
+  WebSocket) con tres suscripciones `postgres_changes`, una por tabla,
+  filtradas por `family_id`. Cada evento simplemente invalida la query
+  de TanStack Query correspondiente (`["domio-progress", familyId]`,
+  `["missions", familyId]`, `["family-members", familyId]`) — así la
+  próxima vez que esa pantalla se renderiza, pide los datos frescos.
+  Se llama una sola vez desde `app/(tabs)/_layout.tsx` (que se
+  mantiene montado mientras navegás entre tabs), no desde cada
+  pantalla individual.
+- No usamos el `old`/`new` que trae cada evento para comparar valores:
+  con la configuración default de Postgres (`replica identity` = solo
+  la primary key), el `old` de un UPDATE viene incompleto. Si más
+  adelante hace falta distinguir, por ejemplo, "subió de nivel" de
+  "solo sumó XP", hay que correr
+  `alter table domio_progress replica identity full;` primero.
+- De yapa: `stores/useDomiStore.ts` ya tenía `isCelebrating` sin usar
+  desde el scaffold inicial. Ahora `useRealtimeSync` lo dispara cuando
+  llega un cambio de XP del Domio, y `DomiAvatar.tsx` reacciona con un
+  pulso y un mensaje distinto mientras dura — la primera vez que Domi
+  "reacciona en vivo" de verdad, como lo describe el brief de producto.
+
 ## Proximos pasos sugeridos
 
-1. Flujo de invitacion: hoy `family_members` solo permite que un usuario
-   se agregue a si mismo (`profile_id = auth.uid()`); falta una forma de
-   que otro integrante se una a una familia existente via `invite_code`
-   (ya esta la columna en `families`, falta la pantalla + el RPC).
-2. Suscribirse a Realtime en `domio_progress` y `mission_completions`
-   para que el estado de Domi se actualice en vivo entre dispositivos
-   sin depender de refetch manual de TanStack Query.
-3. Recompensas: crear/reclamar recompensas con puntos (tablas `rewards`
+1. Recompensas: crear/reclamar recompensas con puntos (tablas `rewards`
    y `reward_redemptions` ya existen en el schema, falta la UI + RPC).
-4. Misiones recurrentes/hábitos (ver nota de alcance arriba).
+2. Misiones recurrentes/hábitos (ver nota de alcance arriba).
+3. Fase 2 de misiones familiares colaborativas (ver seccion de
+   Misiones arriba).
+4. Feed de actividad familiar usando `mission_completions` (hoy solo
+   es historial, no se lee desde ninguna pantalla ni tiene Realtime).

@@ -1,12 +1,25 @@
 import { Tabs } from "expo-router";
 import { Text } from "react-native";
 
+import { useAuth } from "@/hooks/useAuth";
+import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
+import { useRealtimeSync } from "@/hooks/useRealtimeSync";
+
 /**
  * Expo Router: cada archivo dentro de app/(tabs)/ es un tab automatico.
  * `tabBarIcon` normalmente usa @expo/vector-icons; por simplicidad
  * arrancamos con emojis como placeholder.
  */
 export default function TabsLayout() {
+  const { session } = useAuth();
+  const { data: familyMember } = useCurrentFamilyMember(session?.user.id);
+
+  // Se llama aca (y no en cada pantalla) porque este layout se queda
+  // montado todo el tiempo que el usuario esta dentro de (tabs),
+  // aunque cambie de tab — asi la suscripcion de Realtime vive una
+  // sola vez, no se abre y cierra al saltar entre Misiones/Familia/etc.
+  useRealtimeSync(familyMember?.family_id as string | undefined);
+
   return (
     <Tabs
       screenOptions={{

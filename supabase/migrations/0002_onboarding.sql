@@ -55,11 +55,13 @@ create policy "An authenticated user can create a family"
   to authenticated
   with check (created_by = auth.uid());
 
-drop policy if exists "A user can add themselves as a member" on family_members;
-create policy "A user can add themselves as a member"
-  on family_members for insert
-  to authenticated
-  with check (profile_id = auth.uid());
+-- Nota: NO hay policy de INSERT en family_members que deje a un
+-- usuario auto-agregarse. A proposito: la unica forma de sumar una
+-- fila ahi es a traves de una funcion `security definer` (create_family
+-- para el admin inicial, join_family para el resto — ver
+-- 0006_invite_members.sql), que bypasea RLS. Si hubiera una policy de
+-- INSERT abierta tipo "profile_id = auth.uid()", cualquiera que
+-- conociera el uuid de una familia ajena podria sumarse sin invite_code.
 
 drop policy if exists "Domio progress is created together with the family" on domio_progress;
 create policy "Domio progress is created together with the family"
