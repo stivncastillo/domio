@@ -1,0 +1,30 @@
+node_modules/
+.expo/
+dist/
+web-build/
+*.log
+
+# macOS
+.DS_Store
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# Native (carpetas generadas por `npx expo prebuild` / `expo run:ios|android`)
+/ios/
+/android/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# TypeScript
+*.tsbuildinfo
+expo-env.d.ts
+
+# Supabase local
+supabase/.temp/

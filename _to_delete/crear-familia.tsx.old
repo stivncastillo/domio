@@ -1,0 +1,13 @@
+import { View, Text } from "react-native";
+
+export default function CrearFamiliaScreen() {
+  return (
+    <View className="flex-1 items-center justify-center bg-domio-bg px-6">
+      <Text className="text-xl text-white">Crear tu Domio — por implementar</Text>
+      <Text className="mt-2 text-center text-domio-muted">
+        Inserta una fila en `families`, crea el `domio_progress` inicial y agrega al usuario
+        actual como admin en `family_members`.
+      </Text>
+    </View>
+  );
+}
