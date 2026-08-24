@@ -23,28 +23,28 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
-        name="misiones"
+        name="missions"
         options={{
           title: "Misiones",
           tabBarIcon: ({ color }) => <Text style={{ color }}>🎯</Text>,
         }}
       />
       <Tabs.Screen
-        name="familia"
+        name="family"
         options={{
           title: "Familia",
           tabBarIcon: ({ color }) => <Text style={{ color }}>👨‍👩‍👧</Text>,
         }}
       />
       <Tabs.Screen
-        name="recompensas"
+        name="rewards"
         options={{
           title: "Recompensas",
           tabBarIcon: ({ color }) => <Text style={{ color }}>🎁</Text>,
         }}
       />
       <Tabs.Screen
-        name="perfil"
+        name="profile"
         options={{
           title: "Perfil",
           tabBarIcon: ({ color }) => <Text style={{ color }}>🙂</Text>,

@@ -4,17 +4,17 @@ import { MotiView } from "moti";
 import { useDomiStore, type DomiMood } from "@/stores/useDomiStore";
 
 const MOOD_EMOJI: Record<DomiMood, string> = {
-  feliz: "🐾✨",
-  tranquilo: "🐾",
-  alerta: "🐾⚠️",
-  cansado: "🐾💤",
+  happy: "🐾✨",
+  calm: "🐾",
+  alert: "🐾⚠️",
+  tired: "🐾💤",
 };
 
 const MOOD_MESSAGE: Record<DomiMood, string> = {
-  feliz: "¡Hoy vamos muy bien!",
-  tranquilo: "Todo tranquilo por aca.",
-  alerta: "Se estan acumulando misiones...",
-  cansado: "Domi necesita una mano.",
+  happy: "¡Hoy vamos muy bien!",
+  calm: "Todo tranquilo por aca.",
+  alert: "Se estan acumulando misiones...",
+  tired: "Domi necesita una mano.",
 };
 
 /**

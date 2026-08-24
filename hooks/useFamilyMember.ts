@@ -2,7 +2,7 @@
  * ¿El usuario logueado ya pertenece a una familia (ya tiene un Domio)?
  * app/_layout.tsx usa esto, junto con useAuth, para decidir entre 3
  * estados de navegacion: sin sesion -> (auth); con sesion pero sin
- * familia -> (onboarding)/crear-familia; con sesion y familia -> (tabs).
+ * familia -> (onboarding)/create-family; con sesion y familia -> (tabs).
  */
 import { useQuery } from "@tanstack/react-query";
 

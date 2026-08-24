@@ -47,7 +47,13 @@ supabase/
   migrations/
     0001_init.sql          Schema inicial (families, missions, XP, RLS de lectura...)
     0002_onboarding.sql     Trigger de perfil + policies de INSERT + RPC create_family
-    0003_misiones.sql       Policies de UPDATE + RPC complete_mission (otorga XP/nivel)
+    0003_missions.sql       Policies de UPDATE + RPC complete_mission (otorga XP/nivel)
+    0004_rename_to_english.sql   Solo para instalaciones existentes (ver seccion
+                                  "Convencion de idioma" mas abajo) — no hace falta
+                                  en un proyecto de Supabase nuevo.
+    0005_remove_emoji.sql        Solo para instalaciones existentes: quita la
+                                  columna emoji de missions/rewards — no hace
+                                  falta en un proyecto de Supabase nuevo.
 ```
 
 ## Puesta en marcha
@@ -70,7 +76,11 @@ instalado — es normal y recomendado correrlo despues de cualquier
    proyecto nuevo (elige la region mas cercana, ej. `sa-east-1`).
 2. En **SQL Editor**, pega y ejecuta en orden el contenido de
    `supabase/migrations/0001_init.sql`, `0002_onboarding.sql` y
-   `0003_misiones.sql` (cada uno en una query nueva, en ese orden).
+   `0003_missions.sql` (cada uno en una query nueva, en ese orden). Si
+   es un proyecto de Supabase nuevo, no corras `0004_rename_to_english.sql`
+   ni `0005_remove_emoji.sql` — ya no hacen falta, esos tres archivos ya
+   nacen con la nomenclatura en ingles y sin el campo emoji (ver
+   "Convencion de idioma" mas abajo).
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -103,6 +113,37 @@ npx supabase login
 npx supabase gen types typescript --project-id TU-PROJECT-ID > types/database.ts
 ```
 
+## Convencion de idioma (2026-08-24)
+
+- **Codigo, variables y base de datos**: todo en ingles — nombres de
+  archivos/rutas, componentes, hooks, funciones, columnas, tablas,
+  valores de enum, nombres de policy de RLS. Ejemplos: `missions.tsx`
+  (no `misiones.tsx`), `useCompleteMission` (no `useCompleteMision`),
+  el enum `mission_status` usa `'pending' | 'completed' | ...` (no
+  `'pendiente' | 'completada'`).
+- **Texto de UI**: por ahora en español (`<Text>Crear misión</Text>`,
+  etc.) — la idea a futuro es que esto sea configurable (es/en) con
+  algo tipo `i18next`/`expo-localization`, pero eso todavia no esta
+  implementado.
+- **Comentarios explicativos y mensajes de `raise exception`**: quedan
+  en español a proposito. Los comentarios son documentacion para vos,
+  no corren en la base de datos ni se compilan; y los mensajes de
+  `raise exception` de las funciones de Postgres terminan mostrandose
+  tal cual en la UI (via `error.message`), asi que en la practica son
+  texto de usuario, no codigo.
+- Si en algun momento preferis que los comentarios tambien esten en
+  ingles, aviso y se ajusta — por ahora se asumio que preferis
+  mantenerlos en español ya que son para tu propio entendimiento del
+  proyecto.
+
+Como el proyecto ya tenia `0001`–`0003` aplicados en Supabase con los
+valores viejos en español, `0004_rename_to_english.sql` existe
+especificamente para migrar esa base ya existente (renombra los
+valores de los enums con `alter type ... rename value`, que no toca
+los datos existentes, solo la etiqueta con la que se muestran). Un
+proyecto de Supabase nuevo NO necesita `0004`: `0001`-`0003` ya nacen
+en ingles.
+
 ## Conceptos de Expo/RN que vas a encontrar (para quien viene de React web)
 
 - **Expo Router vs React Router**: en vez de declarar rutas en codigo,
@@ -128,33 +169,37 @@ para rutas protegidas) con 3 estados, resueltos con `useAuth` +
 `useCurrentFamilyMember`:
 
 - Sin sesion -> grupo `(auth)` (login/registro).
-- Con sesion pero sin fila en `family_members` -> `(onboarding)/crear-familia`.
+- Con sesion pero sin fila en `family_members` -> `(onboarding)/create-family`.
 - Con sesion y con familia -> `(tabs)` (la app real).
 
-Cuando `create_family` corre (ver `(onboarding)/crear-familia.tsx`), se
+Cuando `create_family` corre (ver `(onboarding)/create-family.tsx`), se
 invalida la query `["family-member", userId]` y el router pasa solo a
 `(tabs)`, sin navegacion manual.
 
 ## Misiones (implementado 2026-08-23)
 
 - Tab **Misiones**: crear misión (título, XP, tipo única/familiar,
-  obligatoria o no — el emoji usa el default de la base de datos, no se
-  pide en el formulario) y completarla tocándola en la lista.
+  obligatoria o no) y completarla tocándola en la lista. No tiene campo
+  de emoji — se sacó por completo del modelo (ver "Convención de
+  idioma" y la migración `0005_remove_emoji.sql`).
 - El Dashboard ya usa datos reales: nivel/XP del Domio
-  (`useDomioProgress`) y hasta 3 misiones pendientes (`useMisiones`).
+  (`useDomioProgress`) y hasta 3 misiones pendientes (`useMissions`).
 - Completar una misión llama a la RPC `complete_mission`, que en un
-  solo paso registra el completado y reparte el XP segun el tipo:
-  - **Única**: el XP va al integrante que la completó (recalculando su
-    nivel, cada 500 XP) y ademas suma al Domio.
-  - **Familiar**: "cualquiera la completa" — basta con que un
-    integrante la marque, y el XP entero va al Domio, nadie se lo lleva
-    individualmente. Es la fase 1 de misiones familiares; la fase 2
-    (colaborativa, con subtareas asignadas a cada integrante que en
-    conjunto completan la mision padre) queda pendiente de diseño.
+  solo paso registra el completado y reparte el XP segun el tipo
+  (`mission_type`, valores `single` | `family` | `recurring` | `habit`):
+  - **`single`** ("Única" en la UI): el XP va al integrante que la
+    completó (recalculando su nivel, cada 500 XP) y ademas suma al
+    Domio.
+  - **`family`** ("Familiar" en la UI): "cualquiera la completa" —
+    basta con que un integrante la marque, y el XP entero va al Domio,
+    nadie se lo lleva individualmente. Es la fase 1 de misiones
+    familiares; la fase 2 (colaborativa, con subtareas asignadas a
+    cada integrante que en conjunto completan la mision padre) queda
+    pendiente de diseño.
   - En ambos casos el Domio sube de nivel cuando corresponde (umbral
     +200 XP por nivel).
-- Alcance actual: solo misiones "única" y "familiar" (se completan una
-  vez y quedan cerradas). "Recurrente" y "hábito" quedan pendientes —
+- Alcance actual: solo misiones `single` y `family` (se completan una
+  vez y quedan cerradas). `recurring` y `habit` quedan pendientes —
   necesitan lógica para generar una nueva ocurrencia en vez de cerrar
   la misión para siempre.
 - `mission_assignees` (N:M mision-integrante) esta en el schema pero

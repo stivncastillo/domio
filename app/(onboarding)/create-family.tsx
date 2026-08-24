@@ -1,4 +1,4 @@
-import { View, Text, TextInput, Pressable } from "react-native";
+import { View, Text, TextInput, Pressable, Alert } from "react-native";
 import { useForm, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -13,7 +13,7 @@ const familySchema = z.object({
 
 type FamilyForm = z.infer<typeof familySchema>;
 
-export default function CrearFamiliaScreen() {
+export default function CreateFamilyScreen() {
   const { session } = useAuth();
   const queryClient = useQueryClient();
 
@@ -42,6 +42,19 @@ export default function CrearFamiliaScreen() {
     // quedo desactualizado. app/_layout.tsx la vuelve a pedir, ve que ahora
     // SI hay family_members, y cambia solo de (onboarding) a (tabs).
     await queryClient.invalidateQueries({ queryKey: ["family-member", session?.user.id] });
+  };
+
+  // DEBUG TEMPORAL: llama a la funcion debug_whoami() (ver instrucciones
+  // de Claude) para confirmar que rol/usuario ve Postgres en esta llamada.
+  // Borrar este handler y el boton de abajo una vez resuelto el bug de RLS.
+  const onDebugWhoAmI = async () => {
+    const { data, error } = await supabase.rpc("debug_whoami");
+    if (error) {
+      Alert.alert("Error llamando debug_whoami", error.message);
+      return;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    Alert.alert("debug_whoami()", `uid: ${row?.uid ?? "null"}\nrole: ${row?.role ?? "null"}`);
   };
 
   return (
@@ -78,6 +91,21 @@ export default function CrearFamiliaScreen() {
         <Text className="font-semibold text-domio-bg">
           {isSubmitting ? "Creando..." : "Crear Domio"}
         </Text>
+      </Pressable>
+
+      {/* DEBUG TEMPORAL — borrar despues de diagnosticar el error de RLS */}
+      <Pressable className="mt-4 items-center" onPress={onDebugWhoAmI}>
+        <Text className="text-domio-secondary">🔍 Ver mi sesión (debug)</Text>
+      </Pressable>
+
+      {/*
+        Util mientras desarrollamos/probamos: en este punto del flujo
+        (sesion activa, sin familia todavia) no hay tabs ni pantalla de
+        Perfil a la que ir, asi que sin esto quedarias sin forma de
+        volver al login desde la UI.
+      */}
+      <Pressable className="mt-6 items-center" onPress={() => supabase.auth.signOut()}>
+        <Text className="text-domio-muted">Cerrar sesión</Text>
       </Pressable>
     </View>
   );

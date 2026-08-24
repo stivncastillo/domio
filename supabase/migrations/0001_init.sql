@@ -7,6 +7,12 @@
 --    si prefieres manejar migraciones desde tu maquina.)
 --
 -- Convenciones:
+-- - Todo lo estructural (tablas, columnas, tipos/enums, funciones,
+--   nombres de policy) va en ingles: es la convencion del proyecto de
+--   aca en adelante. Los comentarios explicativos como este quedan en
+--   español (son para vos, no corren en la base de datos), y los
+--   mensajes de `raise exception` tambien quedan en español porque
+--   terminan mostrandose directo en la UI de la app.
 -- - snake_case en la base de datos; el codigo TS mapea a camelCase
 --   (ver types/domain.ts).
 -- - RLS (Row Level Security) esta activado en todo: por defecto NADIE
@@ -26,12 +32,12 @@ create table if not exists profiles (
 
 alter table profiles enable row level security;
 
-create policy "Cualquier usuario autenticado puede ver perfiles"
+create policy "Authenticated users can view profiles"
   on profiles for select
   to authenticated
   using (true);
 
-create policy "Un usuario solo edita su propio perfil"
+create policy "A user can only edit their own profile"
   on profiles for update
   to authenticated
   using (id = auth.uid());
@@ -53,13 +59,13 @@ alter table families enable row level security;
 -- family_members: relacion N:M entre profiles y families,
 -- con el estado de gamificacion individual de cada integrante.
 -- ============================================================
-create type family_role as enum ('admin', 'miembro');
+create type family_role as enum ('admin', 'member');
 
 create table if not exists family_members (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families (id) on delete cascade,
   profile_id uuid not null references profiles (id) on delete cascade,
-  role family_role not null default 'miembro',
+  role family_role not null default 'member',
   level integer not null default 1,
   xp integer not null default 0,
   streak_days integer not null default 0,
@@ -82,12 +88,12 @@ as $$
   );
 $$;
 
-create policy "Los miembros ven su propia familia"
+create policy "Members can view their own family"
   on families for select
   to authenticated
   using (is_member_of_family(id));
 
-create policy "Los miembros se ven entre si dentro de su familia"
+create policy "Members can see each other within their family"
   on family_members for select
   to authenticated
   using (is_member_of_family(family_id));
@@ -95,20 +101,19 @@ create policy "Los miembros se ven entre si dentro de su familia"
 -- ============================================================
 -- missions
 -- ============================================================
-create type mission_type as enum ('unica', 'recurrente', 'habito', 'familiar');
+create type mission_type as enum ('single', 'recurring', 'habit', 'family');
 create type mission_status as enum (
-  'pendiente', 'completada', 'incumplida', 'omitida', 'reprogramada'
+  'pending', 'completed', 'failed', 'skipped', 'rescheduled'
 );
 
 create table if not exists missions (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families (id) on delete cascade,
   title text not null,
-  emoji text not null default '✅',
-  type mission_type not null default 'unica',
+  type mission_type not null default 'single',
   is_mandatory boolean not null default false,
   xp_reward integer not null default 10,
-  status mission_status not null default 'pendiente',
+  status mission_status not null default 'pending',
   recurrence_rule jsonb, -- p.ej. { "freq": "daily" } o { "freq": "weekly", "days": [1,3,5] }
   due_at timestamptz,
   created_by uuid not null references profiles (id),
@@ -117,17 +122,17 @@ create table if not exists missions (
 
 alter table missions enable row level security;
 
-create policy "Los miembros ven las misiones de su familia"
+create policy "Members can view their family's missions"
   on missions for select
   to authenticated
   using (is_member_of_family(family_id));
 
-create policy "Los miembros crean/editan misiones de su familia"
+create policy "Members can create missions for their family"
   on missions for insert
   to authenticated
   with check (is_member_of_family(family_id));
 
-create policy "Los miembros actualizan misiones de su familia"
+create policy "Members can update their family's missions"
   on missions for update
   to authenticated
   using (is_member_of_family(family_id));
@@ -142,7 +147,7 @@ create table if not exists mission_assignees (
 
 alter table mission_assignees enable row level security;
 
-create policy "Los miembros ven asignaciones de su familia"
+create policy "Members can view their family's assignments"
   on mission_assignees for select
   to authenticated
   using (
@@ -167,7 +172,7 @@ create table if not exists mission_completions (
 
 alter table mission_completions enable row level security;
 
-create policy "Los miembros ven completados de su familia"
+create policy "Members can view their family's completions"
   on mission_completions for select
   to authenticated
   using (
@@ -178,7 +183,7 @@ create policy "Los miembros ven completados de su familia"
     )
   );
 
-create policy "Los miembros registran sus propios completados"
+create policy "Members can log their own completions"
   on mission_completions for insert
   to authenticated
   with check (
@@ -196,7 +201,6 @@ create table if not exists rewards (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families (id) on delete cascade,
   title text not null,
-  emoji text not null default '🎁',
   cost_points integer not null default 0,
   is_family_reward boolean not null default false,
   created_at timestamptz not null default now()
@@ -204,7 +208,7 @@ create table if not exists rewards (
 
 alter table rewards enable row level security;
 
-create policy "Los miembros ven recompensas de su familia"
+create policy "Members can view their family's rewards"
   on rewards for select
   to authenticated
   using (is_member_of_family(family_id));
@@ -228,13 +232,13 @@ create table if not exists domio_progress (
   current_xp integer not null default 0,
   xp_to_next_level integer not null default 1000,
   family_streak_days integer not null default 0,
-  mood text not null default 'neutral', -- positivo | neutral | alerta | critico
+  mood text not null default 'neutral', -- positive | neutral | alert | critical
   updated_at timestamptz not null default now()
 );
 
 alter table domio_progress enable row level security;
 
-create policy "Los miembros ven el progreso de su Domio"
+create policy "Members can view their Domio's progress"
   on domio_progress for select
   to authenticated
   using (is_member_of_family(family_id));

@@ -11,7 +11,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { Mission, MissionType } from "@/types/domain";
 
-export function useMisiones(familyId: string | undefined) {
+export function useMissions(familyId: string | undefined) {
   return useQuery({
     queryKey: ["missions", familyId],
     queryFn: async (): Promise<Mission[]> => {
@@ -39,7 +39,7 @@ export function useMisiones(familyId: string | undefined) {
   });
 }
 
-interface CreateMisionInput {
+interface CreateMissionInput {
   familyId: string;
   createdBy: string;
   title: string;
@@ -48,14 +48,11 @@ interface CreateMisionInput {
   xpReward: number;
 }
 
-export function useCreateMision() {
+export function useCreateMission() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (input: CreateMisionInput) => {
-      // Sin `emoji`: la columna tiene default '✅' en la base de datos
-      // (ver 0001_init.sql), asi que si no lo mandamos, Postgres lo
-      // completa solo.
+    mutationFn: async (input: CreateMissionInput) => {
       const { error } = await supabase.from("missions").insert({
         family_id: input.familyId,
         created_by: input.createdBy,
@@ -77,10 +74,10 @@ export function useCreateMision() {
  * completado, sumar XP individual (y recalcular nivel), y sumar XP al
  * Domio (con su propio nivel). Por eso vive del lado de Postgres como
  * una funcion (`complete_mission`, ver supabase/migrations/
- * 0003_misiones.sql) en vez de hacerse a los ponchazos desde el
+ * 0003_missions.sql) en vez de hacerse a los ponchazos desde el
  * cliente con 3-4 llamadas sueltas (que ademas no serian atomicas).
  */
-export function useCompleteMision(familyId: string | undefined, userId: string | undefined) {
+export function useCompleteMission(familyId: string | undefined, userId: string | undefined) {
   const queryClient = useQueryClient();
 
   return useMutation({

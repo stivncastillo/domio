@@ -6,7 +6,7 @@ import { MissionRow } from "@/components/ui/MissionRow";
 import { DomiAvatar } from "@/components/domi/DomiAvatar";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
-import { useMisiones, useCompleteMision } from "@/hooks/useMissions";
+import { useMissions, useCompleteMission } from "@/hooks/useMissions";
 import { useDomioProgress } from "@/hooks/useDomioProgress";
 
 /**
@@ -23,11 +23,11 @@ export default function DashboardScreen() {
   const { data: familyMember } = useCurrentFamilyMember(session?.user.id);
   const familyId = familyMember?.family_id as string | undefined;
 
-  const { data: missions } = useMisiones(familyId);
+  const { data: missions } = useMissions(familyId);
   const { data: domio } = useDomioProgress(familyId);
-  const completeMision = useCompleteMision(familyId, session?.user.id);
+  const completeMission = useCompleteMission(familyId, session?.user.id);
 
-  const pendientes = (missions ?? []).filter((m) => m.status === "pendiente").slice(0, 3);
+  const pending = (missions ?? []).filter((m) => m.status === "pending").slice(0, 3);
   const progress = domio && domio.xpToNextLevel > 0 ? domio.currentXp / domio.xpToNextLevel : 0;
 
   return (
@@ -48,14 +48,14 @@ export default function DashboardScreen() {
 
       <View>
         <Text className="mb-2 text-lg font-semibold text-white">🎯 Mis misiones</Text>
-        {pendientes.length === 0 ? (
+        {pending.length === 0 ? (
           <Text className="text-domio-muted">No tenés misiones pendientes. 🎉</Text>
         ) : (
-          pendientes.map((mission) => (
+          pending.map((mission) => (
             <MissionRow
               key={mission.id}
               mission={mission}
-              onToggle={() => completeMision.mutate(mission.id)}
+              onToggle={() => completeMission.mutate(mission.id)}
             />
           ))
         )}

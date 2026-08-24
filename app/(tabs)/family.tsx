@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 
-export default function FamiliaScreen() {
+export default function FamilyScreen() {
   return (
     <View className="flex-1 items-center justify-center bg-domio-bg px-6">
       <Text className="text-xl text-white">Familia — por implementar</Text>

@@ -8,26 +8,26 @@ import { Card } from "@/components/ui/Card";
 import { MissionRow } from "@/components/ui/MissionRow";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
-import { useMisiones, useCreateMision, useCompleteMision } from "@/hooks/useMissions";
+import { useMissions, useCreateMission, useCompleteMission } from "@/hooks/useMissions";
 
 const missionSchema = z.object({
   title: z.string().min(2, "Ponele un titulo"),
   xpReward: z.coerce.number().int().min(1, "Minimo 1 XP").max(200, "Maximo 200 XP"),
-  type: z.enum(["unica", "familiar"]),
+  type: z.enum(["single", "family"]),
   isMandatory: z.boolean(),
 });
 
 type MissionForm = z.infer<typeof missionSchema>;
 
-export default function MisionesScreen() {
+export default function MissionsScreen() {
   const [showForm, setShowForm] = useState(false);
   const { session } = useAuth();
   const { data: familyMember } = useCurrentFamilyMember(session?.user.id);
   const familyId = familyMember?.family_id as string | undefined;
 
-  const { data: missions, isLoading } = useMisiones(familyId);
-  const createMision = useCreateMision();
-  const completeMision = useCompleteMision(familyId, session?.user.id);
+  const { data: missions, isLoading } = useMissions(familyId);
+  const createMission = useCreateMission();
+  const completeMission = useCompleteMission(familyId, session?.user.id);
 
   const {
     control,
@@ -36,12 +36,12 @@ export default function MisionesScreen() {
     formState: { errors, isSubmitting },
   } = useForm<MissionForm>({
     resolver: zodResolver(missionSchema),
-    defaultValues: { title: "", xpReward: 10, type: "unica", isMandatory: false },
+    defaultValues: { title: "", xpReward: 10, type: "single", isMandatory: false },
   });
 
   const onSubmit = async (values: MissionForm) => {
     if (!familyId || !session) return;
-    await createMision.mutateAsync({
+    await createMission.mutateAsync({
       familyId,
       createdBy: session.user.id,
       title: values.title,
@@ -103,7 +103,7 @@ export default function MisionesScreen() {
           )}
 
           {/*
-            "Familiar" = "cualquiera la completa" (fase 1): el XP entero
+            "family" = "cualquiera la completa" (fase 1): el XP entero
             va al Domio, no al individuo que la marco. Mas adelante,
             cuando exista la version colaborativa con subtareas por
             integrante, esto se va a separar en un tipo de mision
@@ -116,21 +116,21 @@ export default function MisionesScreen() {
               <View className="mb-2 flex-row gap-2">
                 <Pressable
                   className={`flex-1 items-center rounded-xl py-2 ${
-                    value === "unica" ? "bg-domio-primary" : "bg-domio-bg"
+                    value === "single" ? "bg-domio-primary" : "bg-domio-bg"
                   }`}
-                  onPress={() => onChange("unica")}
+                  onPress={() => onChange("single")}
                 >
-                  <Text className={value === "unica" ? "text-domio-bg" : "text-white"}>
+                  <Text className={value === "single" ? "text-domio-bg" : "text-white"}>
                     Única
                   </Text>
                 </Pressable>
                 <Pressable
                   className={`flex-1 items-center rounded-xl py-2 ${
-                    value === "familiar" ? "bg-domio-primary" : "bg-domio-bg"
+                    value === "family" ? "bg-domio-primary" : "bg-domio-bg"
                   }`}
-                  onPress={() => onChange("familiar")}
+                  onPress={() => onChange("family")}
                 >
-                  <Text className={value === "familiar" ? "text-domio-bg" : "text-white"}>
+                  <Text className={value === "family" ? "text-domio-bg" : "text-white"}>
                     Familiar
                   </Text>
                 </Pressable>
@@ -184,7 +184,7 @@ export default function MisionesScreen() {
             <MissionRow
               mission={item}
               onToggle={
-                item.status === "pendiente" ? () => completeMision.mutate(item.id) : undefined
+                item.status === "pending" ? () => completeMission.mutate(item.id) : undefined
               }
             />
           )}

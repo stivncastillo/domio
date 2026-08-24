@@ -6,13 +6,13 @@
  *
  * Regla simple para decidir Zustand vs TanStack Query:
  * - ¿El dato vive en la base de datos y otros dispositivos lo necesitan
- *   ver? -> Query (useMisiones, useDomioProgress, etc).
+ *   ver? -> Query (useMissions, useDomioProgress, etc).
  * - ¿Es solo un estado visual/temporal de esta pantalla o sesion?
  *   -> Zustand (o incluso useState si es de un solo componente).
  */
 import { create } from "zustand";
 
-export type DomiMood = "feliz" | "tranquilo" | "alerta" | "cansado";
+export type DomiMood = "happy" | "calm" | "alert" | "tired";
 
 interface DomiUiState {
   mood: DomiMood;
@@ -23,7 +23,7 @@ interface DomiUiState {
 }
 
 export const useDomiStore = create<DomiUiState>((set) => ({
-  mood: "tranquilo",
+  mood: "calm",
   isCelebrating: false,
   setMood: (mood) => set({ mood }),
   celebrate: () => set({ isCelebrating: true }),

@@ -49,20 +49,20 @@ create trigger on_auth_user_created
 -- ahi mismo). Con el drop antes, este archivo se puede volver a
 -- correr entero las veces que haga falta sin romperse a la mitad.
 -- ============================================================
-drop policy if exists "Un usuario autenticado puede crear una familia" on families;
-create policy "Un usuario autenticado puede crear una familia"
+drop policy if exists "An authenticated user can create a family" on families;
+create policy "An authenticated user can create a family"
   on families for insert
   to authenticated
   with check (created_by = auth.uid());
 
-drop policy if exists "Un usuario se agrega a si mismo como miembro" on family_members;
-create policy "Un usuario se agrega a si mismo como miembro"
+drop policy if exists "A user can add themselves as a member" on family_members;
+create policy "A user can add themselves as a member"
   on family_members for insert
   to authenticated
   with check (profile_id = auth.uid());
 
-drop policy if exists "El progreso del Domio se crea junto con la familia" on domio_progress;
-create policy "El progreso del Domio se crea junto con la familia"
+drop policy if exists "Domio progress is created together with the family" on domio_progress;
+create policy "Domio progress is created together with the family"
   on domio_progress for insert
   to authenticated
   with check (is_member_of_family(family_id));

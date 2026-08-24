@@ -57,7 +57,7 @@ export default function RegisterScreen() {
 
     // Con sesion creada, useAuth + useCurrentFamilyMember en
     // app/_layout.tsx detectan el cambio y mandan al usuario a
-    // (onboarding)/crear-familia automaticamente (todavia no tiene
+    // (onboarding)/create-family automaticamente (todavia no tiene
     // family_members), sin necesidad de navegar manualmente aca.
   };
 

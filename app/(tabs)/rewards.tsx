@@ -1,6 +1,6 @@
 import { Text, View } from "react-native";
 
-export default function RecompensasScreen() {
+export default function RewardsScreen() {
   return (
     <View className="flex-1 items-center justify-center bg-domio-bg px-6">
       <Text className="text-xl text-white">Recompensas — por implementar</Text>

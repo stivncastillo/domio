@@ -8,15 +8,15 @@
 --    poder sumar XP en family_members y en domio_progress, y RLS
 --    bloquea eso por defecto hasta que una policy lo permite.
 -- ============================================================
-drop policy if exists "Un usuario actualiza su propio progreso" on family_members;
-create policy "Un usuario actualiza su propio progreso"
+drop policy if exists "A user can update their own progress" on family_members;
+create policy "A user can update their own progress"
   on family_members for update
   to authenticated
   using (profile_id = auth.uid())
   with check (profile_id = auth.uid());
 
-drop policy if exists "Los miembros actualizan el progreso de su Domio" on domio_progress;
-create policy "Los miembros actualizan el progreso de su Domio"
+drop policy if exists "Members can update their Domio's progress" on domio_progress;
+create policy "Members can update their Domio's progress"
   on domio_progress for update
   to authenticated
   using (is_member_of_family(family_id))
@@ -28,9 +28,9 @@ create policy "Los miembros actualizan el progreso de su Domio"
 --    corresponde. Se llama desde la app con:
 --    supabase.rpc('complete_mission', { target_mission_id })
 --
--- Alcance actual (MVP): pensada para misiones "unica" y "familiar",
+-- Alcance actual (MVP): pensada para misiones "single" y "family",
 -- que se completan una sola vez (la mision pasa a status =
--- 'completada' y ya). Todavia no soporta bien "recurrente"/"habito",
+-- 'completed' y ya). Todavia no soporta bien "recurring"/"habit",
 -- que en rigor necesitarian generar una nueva ocurrencia en vez de
 -- "cerrar" la mision para siempre — queda para una iteracion futura.
 --
@@ -75,18 +75,18 @@ begin
   -- Registrar el completado (historial — una mision recurrente en el
   -- futuro tendria una fila por cada ocurrencia completada).
   insert into mission_completions (mission_id, family_member_id, status, xp_awarded)
-  values (target_mission_id, v_family_member_id, 'completada', v_xp_reward);
+  values (target_mission_id, v_family_member_id, 'completed', v_xp_reward);
 
-  update missions set status = 'completada' where id = target_mission_id;
+  update missions set status = 'completed' where id = target_mission_id;
 
   -- Reparto de XP segun el tipo (definido con Stiven, fase 1):
-  -- "unica" -> el XP es para quien la completo, ademas de sumar al
-  -- Domio. "familiar" -> "cualquiera la completa": el XP entero va al
+  -- "single" -> el XP es para quien la completo, ademas de sumar al
+  -- Domio. "family" -> "cualquiera la completa": el XP entero va al
   -- Domio, nadie se lo lleva individualmente (todavia). Mas adelante
   -- la version colaborativa (mision con subtareas, una por
   -- integrante) va a repartir XP distinto — cuando eso exista, esta
   -- funcion se separa en dos.
-  if v_type = 'unica' then
+  if v_type = 'single' then
     -- `xp` del lado derecho es siempre el valor ANTES de este UPDATE
     -- (asi funciona un SET en Postgres), asi que las dos expresiones
     -- usan el mismo valor base de forma consistente. Formula simple
@@ -97,7 +97,7 @@ begin
     where id = v_family_member_id;
   end if;
 
-  -- XP colectivo del Domio (esto pasa siempre, sea "unica" o "familiar").
+  -- XP colectivo del Domio (esto pasa siempre, sea "single" o "family").
   update domio_progress
   set current_xp = current_xp + v_xp_reward
   where family_id = v_family_id;

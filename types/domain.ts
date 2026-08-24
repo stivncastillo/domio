@@ -4,16 +4,16 @@
  * tiene el shape crudo tal como vive en Supabase (snake_case).
  */
 
-export type MissionType = "unica" | "recurrente" | "habito" | "familiar";
+export type MissionType = "single" | "recurring" | "habit" | "family";
 
 export type MissionStatus =
-  | "pendiente"
-  | "completada"
-  | "incumplida"
-  | "omitida"
-  | "reprogramada";
+  | "pending"
+  | "completed"
+  | "failed"
+  | "skipped"
+  | "rescheduled";
 
-export type FamilyRole = "admin" | "miembro";
+export type FamilyRole = "admin" | "member";
 
 export interface FamilyMember {
   id: string;
@@ -42,7 +42,6 @@ export interface Reward {
   id: string;
   familyId: string;
   title: string;
-  emoji: string;
   costPoints: number;
   isFamilyReward: boolean;
 }
@@ -53,5 +52,5 @@ export interface DomioProgress {
   currentXp: number;
   xpToNextLevel: number;
   familyStreakDays: number;
-  mood: "positivo" | "neutral" | "alerta" | "critico";
+  mood: "positive" | "neutral" | "alert" | "critical";
 }

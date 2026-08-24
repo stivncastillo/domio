@@ -2,7 +2,7 @@ import { Text, View, Pressable } from "react-native";
 
 import { supabase } from "@/lib/supabase";
 
-export default function PerfilScreen() {
+export default function ProfileScreen() {
   return (
     <View className="flex-1 items-center justify-center bg-domio-bg px-6">
       <Text className="text-xl text-white">Perfil — por implementar</Text>
