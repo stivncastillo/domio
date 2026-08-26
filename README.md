@@ -78,6 +78,10 @@ supabase/
                                   misiones "family" (antes solo en "single"),
                                   a quien la completa. También hace falta en
                                   cualquier instalación.
+    0012_domio_level_curve.sql   Curva de dificultad para subir de nivel del
+                                  Domio (fácil hasta nivel 10, exponencial
+                                  después). También hace falta en cualquier
+                                  instalación.
 ```
 
 ## Puesta en marcha
@@ -102,14 +106,15 @@ instalado — es normal y recomendado correrlo despues de cualquier
    `supabase/migrations/0001_init.sql`, `0002_onboarding.sql`,
    `0003_missions.sql`, `0006_invite_members.sql`,
    `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
-   `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql` y
-   `0011_family_mission_coins.sql` (cada uno en una query nueva, en
-   ese orden). Si es un proyecto de Supabase nuevo, no corras
-   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
+   `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql`,
+   `0011_family_mission_coins.sql` y `0012_domio_level_curve.sql`
+   (cada uno en una query nueva, en ese orden). Si es un proyecto de
+   Supabase nuevo, no corras `0004_rename_to_english.sql` ni
+   `0005_remove_emoji.sql` — ya no
    hacen falta, esos tres primeros nomenclatura en ingles y sin el
    campo emoji (ver "Convencion de idioma" mas abajo). `0006`, `0007`,
-   `0008`, `0009`, `0010` y `0011` sí corren siempre, en cualquier
-   instalación.
+   `0008`, `0009`, `0010`, `0011` y `0012` sí corren siempre, en
+   cualquier instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -228,8 +233,9 @@ invalida la query `["family-member", userId]` y el router pasa solo a
     `single`. Es la fase 1 de misiones familiares; la fase 2
     (colaborativa, con subtareas asignadas a cada integrante que en
     conjunto completan la mision padre) queda pendiente de diseño.
-  - En ambos casos el Domio sube de nivel cuando corresponde (umbral
-    +200 XP por nivel).
+  - En ambos casos el Domio sube de nivel cuando corresponde, según la
+    curva de dificultad descrita en "Curva de nivel del Domio" más
+    abajo.
 - Alcance actual: solo misiones `single` y `family` (se completan una
   vez y quedan cerradas). `recurring` y `habit` quedan pendientes —
   necesitan lógica para generar una nueva ocurrencia en vez de cerrar
@@ -244,6 +250,36 @@ invalida la query `["family-member", userId]` y el router pasa solo a
   evaluación se comporta distinto en el contexto de RETURNING que en
   un SELECT aparte). La RPC, al ser `security definer`, resuelve esto
   igual que `create_family`/`join_family`.
+
+## Curva de nivel del Domio (2026-08-26)
+
+Antes de esto el umbral para subir de nivel era fijo: nivel 1→2 ya
+pedía 1000 XP (default de la columna), y cada nivel siguiente sumaba
+200 XP más al umbral (`xp_to_next_level + 200`, hardcodeado dentro de
+`complete_mission`). Muy duro para arrancar y crecía poco después.
+
+Stiven pidió una curva donde los primeros niveles suban fácil/rápido y
+"después del nivel 10 se pone más complejo" — se le presentaron tres
+curvas posibles (vía AskUserQuestion, con ejemplos numéricos de cada
+una) y eligió la que tiene un quiebre explícito en el nivel 10:
+
+- **`supabase/migrations/0012_domio_level_curve.sql`** (aplica en
+  cualquier instalación) agrega la función `xp_required_for_level(nivel)`:
+  - Nivel ≤ 10: lineal, `50 + 30*(nivel-1)` → 50, 80, 110, 140... XP.
+  - Nivel > 10: exponencial, `320 * 1.25^(nivel-10)` → 320, 400, 500...
+    XP, acelerando cada vez más.
+  - Ejemplos: nivel 1→2 = 50 XP, nivel 5→6 = 170 XP, nivel 10→11 =
+    320 XP, nivel 15→16 = 977 XP, nivel 20→21 = 2980 XP.
+- Esta función reemplaza el literal `1000` como default de
+  `domio_progress.xp_to_next_level` y el `+ 200` hardcodeado dentro de
+  `complete_mission` — un solo lugar define la curva, no queda
+  duplicada.
+- La migración también recalcula el umbral de cualquier familia que ya
+  tuviera `domio_progress` (con la curva vieja) para su nivel actual —
+  sin tocar el `current_xp` ya ganado — y si con la curva nueva (más
+  fácil al principio) ese progreso ya alcanza para subir uno o más
+  niveles de una, los aplica ahí mismo (mismo loop que usa
+  `complete_mission`).
 
 ## Roles y asignación de misiones (implementado 2026-08-24)
 
