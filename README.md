@@ -74,6 +74,10 @@ supabase/
     0010_create_mission_rpc.sql  RPC create_mission (arregla un bug real de
                                   RETURNING+RLS al crear misiones). También
                                   hace falta en cualquier instalación.
+    0011_family_mission_coins.sql   complete_mission reparte coins también en
+                                  misiones "family" (antes solo en "single"),
+                                  a quien la completa. También hace falta en
+                                  cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -98,13 +102,14 @@ instalado — es normal y recomendado correrlo despues de cualquier
    `supabase/migrations/0001_init.sql`, `0002_onboarding.sql`,
    `0003_missions.sql`, `0006_invite_members.sql`,
    `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
-   `0009_rewards_and_coins.sql` y `0010_create_mission_rpc.sql` (cada
-   uno en una query nueva, en ese orden). Si es un proyecto de
-   Supabase nuevo, no corras `0004_rename_to_english.sql` ni
-   `0005_remove_emoji.sql` — ya no hacen falta, esos tres primeros
-   nomenclatura en ingles y sin el campo emoji (ver "Convencion de
-   idioma" mas abajo). `0006`, `0007`, `0008`, `0009` y `0010` sí
-   corren siempre, en cualquier instalación.
+   `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql` y
+   `0011_family_mission_coins.sql` (cada uno en una query nueva, en
+   ese orden). Si es un proyecto de Supabase nuevo, no corras
+   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
+   hacen falta, esos tres primeros nomenclatura en ingles y sin el
+   campo emoji (ver "Convencion de idioma" mas abajo). `0006`, `0007`,
+   `0008`, `0009`, `0010` y `0011` sí corren siempre, en cualquier
+   instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -217,10 +222,12 @@ invalida la query `["family-member", userId]` y el router pasa solo a
     para gastar en recompensas.
   - **`family`** ("Familiar" en la UI): "cualquiera la completa" —
     basta con que un integrante la marque, y el XP entero va al Domio,
-    nadie se lo lleva individualmente. Es la fase 1 de misiones
-    familiares; la fase 2 (colaborativa, con subtareas asignadas a
-    cada integrante que en conjunto completan la mision padre) queda
-    pendiente de diseño.
+    nadie se lo lleva individualmente. Las coins sí son individuales
+    también acá (desde `0011_family_mission_coins.sql`): quien la
+    marca como completada gana `coin_reward` en coins, igual que en
+    `single`. Es la fase 1 de misiones familiares; la fase 2
+    (colaborativa, con subtareas asignadas a cada integrante que en
+    conjunto completan la mision padre) queda pendiente de diseño.
   - En ambos casos el Domio sube de nivel cuando corresponde (umbral
     +200 XP por nivel).
 - Alcance actual: solo misiones `single` y `family` (se completan una
@@ -348,10 +355,11 @@ nuevo ya nazca sin `xp`/`level` individual):
 - **`coins`** es la única moneda individual, en `family_members`. Se
   gana en misiones y se gasta libremente en recompensas — no hay
   nivel ni XP por integrante.
-- Cada misión `single` tiene `coin_reward` (además del `xp_reward`,
-  que sigue yendo entero al Domio). Las misiones `family` no reparten
-  coins individualmente — nadie se las lleva, sigue siendo "el XP
-  entero va al Domio".
+- Cada misión (`single` y `family`) tiene `coin_reward` (además del
+  `xp_reward`, que sigue yendo entero al Domio en los dos casos). En
+  `single` las coins van al asignado; en `family` van a quien la
+  completa (desde `0011_family_mission_coins.sql` — antes las
+  misiones `family` no repartían coins individualmente, solo XP).
 - **`rewards`** tiene `cost_coins` (antes `cost_points`) y
   `min_domio_level` (nuevo, default 1 = sin requisito extra).
 - **Solo el admin crea recompensas** (mismo motivo que las misiones:

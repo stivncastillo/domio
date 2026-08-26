@@ -15,8 +15,9 @@ const missionSchema = z
   .object({
     title: z.string().min(2, "Ponele un titulo"),
     xpReward: z.coerce.number().int().min(1, "Minimo 1 XP").max(200, "Maximo 200 XP"),
-    // Las coins solo se pagan en misiones "single" (ver complete_mission,
-    // 0009_rewards_and_coins.sql) — 0 es un valor valido, una mision
+    // Las coins se pagan en cualquier tipo de mision (ver complete_mission,
+    // 0011_family_mission_coins.sql): en "single" van al asignado, en
+    // "family" van a quien la completa. 0 es un valor valido, una mision
     // puede dar solo XP y nada de moneda.
     coinReward: z.coerce.number().int().min(0, "No puede ser negativo").max(200, "Maximo 200"),
     type: z.enum(["single", "family"]),
@@ -76,9 +77,7 @@ export default function MissionsScreen() {
         type: values.type,
         isMandatory: values.isMandatory,
         xpReward: values.xpReward,
-        // Igual que el asignado: las coins solo importan (y se muestran)
-        // para "single", asi que para "family" mandamos 0 sin ambiguedad.
-        coinReward: values.type === "single" ? values.coinReward : 0,
+        coinReward: values.coinReward,
         assigneeFamilyMemberId: values.type === "single" ? values.assigneeId : undefined,
       });
     } catch (err: any) {
@@ -146,27 +145,23 @@ export default function MissionsScreen() {
             <Text className="mb-2 text-domio-danger">{errors.xpReward.message}</Text>
           )}
 
-          {type === "single" && (
-            <>
-              <Controller
-                control={control}
-                name="coinReward"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <TextInput
-                    className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
-                    placeholder="Monedas (ej: 5, se gastan en recompensas)"
-                    placeholderTextColor="#7A7F9A"
-                    keyboardType="numeric"
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    value={String(value)}
-                  />
-                )}
+          <Controller
+            control={control}
+            name="coinReward"
+            render={({ field: { onChange, onBlur, value } }) => (
+              <TextInput
+                className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
+                placeholder="Monedas (ej: 5, se gastan en recompensas)"
+                placeholderTextColor="#7A7F9A"
+                keyboardType="numeric"
+                onBlur={onBlur}
+                onChangeText={onChange}
+                value={String(value)}
               />
-              {errors.coinReward && (
-                <Text className="mb-2 text-domio-danger">{errors.coinReward.message}</Text>
-              )}
-            </>
+            )}
+          />
+          {errors.coinReward && (
+            <Text className="mb-2 text-domio-danger">{errors.coinReward.message}</Text>
           )}
 
           {/*

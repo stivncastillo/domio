@@ -16,15 +16,11 @@ export function MissionRow({ mission, onToggle }: MissionRowProps) {
       className="mb-2 flex-row items-center justify-between rounded-xl bg-domio-card px-4 py-3"
     >
       <View className="flex-1">
-        <Text
-          className={`text-base ${isDone ? "text-domio-muted line-through" : "text-white"}`}
-        >
+        <Text className={`text-base ${isDone ? "text-domio-muted line-through" : "text-white"}`}>
           {mission.title}
         </Text>
         {mission.type === "family" ? (
-          <Text className="text-xs text-domio-secondary">
-            👨‍👩‍👧 Familiar — el XP va al Domio
-          </Text>
+          <Text className="text-xs text-domio-secondary">👨‍👩‍👧 Familiar</Text>
         ) : (
           <Text className="text-xs text-domio-muted">
             {mission.assigneeName ? `Asignada a ${mission.assigneeName}` : "Sin asignar"}
