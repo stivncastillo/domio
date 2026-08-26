@@ -43,13 +43,15 @@ hooks/
   useFamilyMember.ts       ¿El usuario logueado ya tiene familia? (para el ruteo)
   useFamily.ts             Datos de la familia (nombre, invite_code) + lista de integrantes
   useMissions.ts           Listar/crear/completar misiones
+  useRewards.ts            Listar/crear recompensas + reclamarlas (gasta coins)
   useDomioProgress.ts      Nivel y XP colectivo del Domio
   useRealtimeSync.ts       Suscripcion a Supabase Realtime (ver seccion Realtime)
 supabase/
   migrations/
     0001_init.sql          Schema inicial (families, missions, XP, RLS de lectura...)
     0002_onboarding.sql     Trigger de perfil + policies de INSERT + RPC create_family
-    0003_missions.sql       Policies de UPDATE + RPC complete_mission (otorga XP/nivel)
+    0003_missions.sql       Policies de UPDATE + RPC complete_mission (otorga XP/coins;
+                                  version original — 0009 la reemplaza)
     0004_rename_to_english.sql   Solo para instalaciones existentes (ver seccion
                                   "Convencion de idioma" mas abajo) — no hace falta
                                   en un proyecto de Supabase nuevo.
@@ -62,6 +64,16 @@ supabase/
     0007_enable_realtime.sql     Agrega domio_progress/missions/family_members a
                                   la publicación supabase_realtime. También hace
                                   falta en cualquier instalación.
+    0008_mission_roles_and_assignment.sql   Solo el admin crea/asigna misiones;
+                                  un miembro común ve solo las suyas. También
+                                  hace falta en cualquier instalación.
+    0009_rewards_and_coins.sql   Saca xp/level individual de family_members
+                                  (solo el Domio sube de nivel), agrega coins +
+                                  RPC redeem_reward (coins + nivel del Domio).
+                                  También hace falta en cualquier instalación.
+    0010_create_mission_rpc.sql  RPC create_mission (arregla un bug real de
+                                  RETURNING+RLS al crear misiones). También
+                                  hace falta en cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -84,14 +96,15 @@ instalado — es normal y recomendado correrlo despues de cualquier
    proyecto nuevo (elige la region mas cercana, ej. `sa-east-1`).
 2. En **SQL Editor**, pega y ejecuta en orden el contenido de
    `supabase/migrations/0001_init.sql`, `0002_onboarding.sql`,
-   `0003_missions.sql`, `0006_invite_members.sql` y
-   `0007_enable_realtime.sql` (cada uno en una query nueva, en ese
-   orden). Si es un proyecto de Supabase nuevo, no corras
-   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
-   hacen falta, esos tres primeros archivos ya nacen con la
+   `0003_missions.sql`, `0006_invite_members.sql`,
+   `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
+   `0009_rewards_and_coins.sql` y `0010_create_mission_rpc.sql` (cada
+   uno en una query nueva, en ese orden). Si es un proyecto de
+   Supabase nuevo, no corras `0004_rename_to_english.sql` ni
+   `0005_remove_emoji.sql` — ya no hacen falta, esos tres primeros
    nomenclatura en ingles y sin el campo emoji (ver "Convencion de
-   idioma" mas abajo). `0006` y `0007` sí corren siempre, en cualquier
-   instalación.
+   idioma" mas abajo). `0006`, `0007`, `0008`, `0009` y `0010` sí
+   corren siempre, en cualquier instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -198,9 +211,10 @@ invalida la query `["family-member", userId]` y el router pasa solo a
 - Completar una misión llama a la RPC `complete_mission`, que en un
   solo paso registra el completado y reparte el XP segun el tipo
   (`mission_type`, valores `single` | `family` | `recurring` | `habit`):
-  - **`single`** ("Única" en la UI): el XP va al integrante que la
-    completó (recalculando su nivel, cada 500 XP) y ademas suma al
-    Domio.
+  - **`single`** ("Única" en la UI): el XP va al Domio (no hay
+    nivel/XP individual — ver "Recompensas y monedas" más abajo), y el
+    integrante que la completó gana además `coin_reward` en coins,
+    para gastar en recompensas.
   - **`family`** ("Familiar" en la UI): "cualquiera la completa" —
     basta con que un integrante la marque, y el XP entero va al Domio,
     nadie se lo lleva individualmente. Es la fase 1 de misiones
@@ -213,17 +227,59 @@ invalida la query `["family-member", userId]` y el router pasa solo a
   vez y quedan cerradas). `recurring` y `habit` quedan pendientes —
   necesitan lógica para generar una nueva ocurrencia en vez de cerrar
   la misión para siempre.
-- `mission_assignees` (N:M mision-integrante) esta en el schema pero
-  todavia no se usa desde la UI — hoy cualquier miembro de la familia
-  puede completar cualquier mision. Es la tabla que probablemente se
-  use para la fase 2 de misiones familiares (subtareas por integrante).
+- **Crear una misión llama a la RPC `create_mission`**
+  (`0010_create_mission_rpc.sql`), no a un insert directo del cliente.
+  Bug real encontrado por Stiven: insertar directo con
+  `.select("id").single()` (para el RETURNING) explotaba con "new row
+  violates row-level security policy for table missions" —el mismo
+  problema de fondo que `create_family` (el RETURNING de un INSERT
+  exige pasar también la policy de SELECT de la tabla, y esa
+  evaluación se comporta distinto en el contexto de RETURNING que en
+  un SELECT aparte). La RPC, al ser `security definer`, resuelve esto
+  igual que `create_family`/`join_family`.
+
+## Roles y asignación de misiones (implementado 2026-08-24)
+
+Antes de esto, cualquier miembro podía crear misiones y cualquiera
+podía completar cualquiera — Stiven notó que una misión creada por un
+miembro se veía (y se podía completar) desde las dos cuentas. Esto no
+seguía el brief de producto (sección "Roles familiares": crear/asignar
+misiones es del Administrador/Padre, no del Miembro) y además es un
+hueco real: un miembro podría inventarse una misión de mucho XP y
+autocompletarla sin supervisión.
+
+- **Solo el admin de la familia crea misiones** (`0008_mission_roles_and_assignment.sql`,
+  policy de INSERT en `missions`). El botón "+ Nueva" y el formulario
+  ni siquiera se muestran si no sos admin (`app/(tabs)/missions.tsx`).
+- **Una misión `single` se asigna a un integrante puntual** al crearla
+  (picker de chips con los integrantes de la familia, usa
+  `mission_assignees` — la tabla N:M que ya estaba en el schema desde
+  0001 pero sin usar). Es obligatorio elegir a alguien para este tipo.
+  Las misiones `family` no llevan asignado — siguen siendo "cualquiera
+  la completa".
+- **Un miembro común solo ve (y puede completar) sus propias misiones
+  `single` + las `family`.** El admin ve todas. Esto se resuelve con
+  dos funciones helper nuevas (`is_admin_of_family`, `can_view_mission`)
+  usadas en las policies de SELECT/UPDATE de `missions` — no es un
+  filtro de la UI, es la base de datos la que directamente no entrega
+  las filas que no te corresponden.
+- Efecto secundario esperado: misiones `single` que hayas creado
+  *antes* de este cambio, sin asignar a nadie, van a quedar visibles
+  solo para el admin (no matchean ni "soy el admin" obviamente para un
+  miembro, ni "soy el asignado" porque no tienen asignado, ni
+  "type = family"). No es un bug — son datos de prueba viejos que
+  quedaron huérfanos; se pueden borrar o reasignar a mano desde el SQL
+  Editor si molestan.
+- `MissionRow` ahora muestra "Asignada a {nombre}" (o "Sin asignar")
+  en las misiones únicas, en vez del badge de familiar.
 
 ## Invitar miembros (implementado 2026-08-24)
 
 - Tab **Familia** (`app/(tabs)/family.tsx`): muestra el nombre del
   Domio, el `invite_code` con un botón "Compartir código" (usa la API
   nativa `Share` de React Native, sin dependencias nuevas) y la lista
-  de integrantes con su rol, nivel, XP y racha (`hooks/useFamily.ts`).
+  de integrantes con su rol, coins y racha (`hooks/useFamily.ts`) —
+  no hay nivel/XP individual, ver "Recompensas y monedas" más abajo.
 - Pantalla de onboarding **`(onboarding)/join-family.tsx`**: quien no
   tiene familia todavía puede, en vez de crear una, tipear un código y
   unirse a una existente. Llama a la RPC `join_family`, que valida el
@@ -263,12 +319,62 @@ invalida la query `["family-member", userId]` y el router pasa solo a
   pulso y un mensaje distinto mientras dura — la primera vez que Domi
   "reacciona en vivo" de verdad, como lo describe el brief de producto.
 
+## Recompensas y monedas (implementado 2026-08-26)
+
+Hasta acá las misiones daban XP, pero no había nada que hacer con eso
+más que subir de nivel — faltaba la otra mitad del loop del negocio
+(ganar → gastar → recompensa). Diseño final, en dos pasadas con
+Stiven:
+
+1. Primero se evaluó gastar directo del XP (simple, pero bajaría de
+   nivel al comprar algo, raro) vs. una moneda separada. Se eligió la
+   moneda separada.
+2. Después Stiven se dio cuenta de algo más de fondo: "¿para qué el
+   miembro un nivel? no estamos compitiendo entre los miembros. Solo
+   el domio, y con ello el domio nos desbloquea las recompensas."
+   O sea, el nivel/XP individual no tenía sentido — se sacó por
+   completo (`family_members` ya no tiene `xp` ni `level`, **solo el
+   Domio sube de nivel**, progreso colectivo). Lo individual pasó a
+   ser pura moneda (`coins`). Y una recompensa no es solo cuestión de
+   tener las coins: también exige que el Domio haya llegado a cierto
+   nivel — las dos condiciones a la vez ("la recompensa necesita que
+   el domio esté en nivel 7 y tengas 1000 coins, si estás en un nivel
+   inferior, así tengas las coins no la puedes obtener aun").
+
+Diseño final (`0009_rewards_and_coins.sql`, aplica en cualquier
+instalación; también se editó `0001_init.sql` para que un proyecto
+nuevo ya nazca sin `xp`/`level` individual):
+
+- **`coins`** es la única moneda individual, en `family_members`. Se
+  gana en misiones y se gasta libremente en recompensas — no hay
+  nivel ni XP por integrante.
+- Cada misión `single` tiene `coin_reward` (además del `xp_reward`,
+  que sigue yendo entero al Domio). Las misiones `family` no reparten
+  coins individualmente — nadie se las lleva, sigue siendo "el XP
+  entero va al Domio".
+- **`rewards`** tiene `cost_coins` (antes `cost_points`) y
+  `min_domio_level` (nuevo, default 1 = sin requisito extra).
+- **Solo el admin crea recompensas** (mismo motivo que las misiones:
+  si cualquiera pudiera crear una, le pondría costo 0 y nivel 1, y se
+  la reclamaría gratis desde el arranque).
+- **RPC `redeem_reward(target_reward_id)`**: chequea que el Domio haya
+  llegado al `min_domio_level` de la recompensa **Y** que alcancen las
+  `coins`, descuenta y registra el canje en `reward_redemptions`, todo
+  en una transacción — evita quedar en negativo por dos taps rápidos
+  en "Reclamar".
+- Tab **Recompensas** (`app/(tabs)/rewards.tsx`, antes placeholder):
+  muestra tu balance de coins y el nivel actual del Domio arriba, la
+  lista de recompensas con su costo y su nivel mínimo (si tiene uno),
+  y un botón "Reclamar" que se deshabilita si falta cualquiera de las
+  dos condiciones — con un 🔒 aclarando cuando es por nivel. Admin ve
+  además el form de creación (con el campo de nivel mínimo).
+
 ## Proximos pasos sugeridos
 
-1. Recompensas: crear/reclamar recompensas con puntos (tablas `rewards`
-   y `reward_redemptions` ya existen en el schema, falta la UI + RPC).
-2. Misiones recurrentes/hábitos (ver nota de alcance arriba).
-3. Fase 2 de misiones familiares colaborativas (ver seccion de
+1. Misiones recurrentes/hábitos (ver nota de alcance arriba).
+2. Fase 2 de misiones familiares colaborativas (ver seccion de
    Misiones arriba).
-4. Feed de actividad familiar usando `mission_completions` (hoy solo
+3. Feed de actividad familiar usando `mission_completions` (hoy solo
    es historial, no se lee desde ninguna pantalla ni tiene Realtime).
+4. Historial de canjes por integrante (`reward_redemptions` ya se
+   registra, falta una pantalla que lo muestre).

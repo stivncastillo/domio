@@ -15,25 +15,39 @@ export function useMissions(familyId: string | undefined) {
   return useQuery({
     queryKey: ["missions", familyId],
     queryFn: async (): Promise<Mission[]> => {
+      // El embed `mission_assignees(family_members(profiles(display_name)))`
+      // sigue las foreign keys automaticamente (mission_assignees.family_member_id
+      // -> family_members.id -> family_members.profile_id -> profiles.id) —
+      // PostgREST arma el join solo, no hace falta escribirlo a mano. Ojo:
+      // esto solo trae las misiones que la RLS de missions te deja ver
+      // (ver 0008_mission_roles_and_assignment.sql) — un miembro comun
+      // recibe solo las suyas + las familiares, no todas las de la familia.
       const { data, error } = await supabase
         .from("missions")
-        .select("id, title, type, is_mandatory, xp_reward, status, due_at, family_id")
+        .select(
+          "id, title, type, is_mandatory, xp_reward, coin_reward, status, due_at, family_id, mission_assignees(family_member_id, family_members(profiles(display_name)))",
+        )
         .eq("family_id", familyId as string)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
 
-      return (data ?? []).map((m: any) => ({
-        id: m.id,
-        familyId: m.family_id,
-        title: m.title,
-        type: m.type,
-        isMandatory: m.is_mandatory,
-        xpReward: m.xp_reward,
-        assignedTo: [],
-        status: m.status,
-        dueAt: m.due_at,
-      }));
+      return (data ?? []).map((m: any) => {
+        const assignee = m.mission_assignees?.[0];
+        return {
+          id: m.id,
+          familyId: m.family_id,
+          title: m.title,
+          type: m.type,
+          isMandatory: m.is_mandatory,
+          xpReward: m.xp_reward,
+          coinReward: m.coin_reward,
+          assignedTo: assignee ? [assignee.family_member_id] : [],
+          assigneeName: assignee?.family_members?.profiles?.display_name ?? null,
+          status: m.status,
+          dueAt: m.due_at,
+        };
+      });
     },
     enabled: !!familyId,
   });
@@ -41,11 +55,16 @@ export function useMissions(familyId: string | undefined) {
 
 interface CreateMissionInput {
   familyId: string;
-  createdBy: string;
+  // No hace falta pasar quien crea: create_mission usa auth.uid()
+  // internamente (igual que create_family/join_family).
   title: string;
   type: MissionType;
   isMandatory: boolean;
   xpReward: number;
+  /** Solo se paga en misiones "single" (ver complete_mission, 0009). */
+  coinReward: number;
+  /** id de family_members (no de profiles) — obligatorio para type "single". */
+  assigneeFamilyMemberId?: string;
 }
 
 export function useCreateMission() {
@@ -53,13 +72,27 @@ export function useCreateMission() {
 
   return useMutation({
     mutationFn: async (input: CreateMissionInput) => {
-      const { error } = await supabase.from("missions").insert({
-        family_id: input.familyId,
-        created_by: input.createdBy,
-        title: input.title,
-        type: input.type,
-        is_mandatory: input.isMandatory,
-        xp_reward: input.xpReward,
+      // RPC create_mission (0010_create_mission_rpc.sql), no dos
+      // inserts sueltos: un INSERT con `.select().single()` sobre
+      // missions explotaba con "violates row-level security policy"
+      // (codigo 42501) — el RETURNING del insert exige pasar TAMBIEN
+      // la policy de SELECT (can_view_mission), y eso fallaba en el
+      // contexto puntual de RETURNING aunque is_admin_of_family diera
+      // true y un SELECT normal aparte encontrara la fila sin
+      // problema (mismo bug de fondo que ya resolvimos para
+      // create_family). La RPC, al ser security definer, hace el
+      // RETURNING interno sin pasar por esa policy — y de paso evita
+      // tener que adivinar "cual mision se acaba de crear" con un
+      // select ordenado por fecha (una condicion de carrera real si
+      // se crean dos casi al mismo tiempo).
+      const { error } = await supabase.rpc("create_mission", {
+        target_family_id: input.familyId,
+        mission_title: input.title,
+        mission_type: input.type,
+        mission_is_mandatory: input.isMandatory,
+        mission_xp_reward: input.xpReward,
+        mission_coin_reward: input.coinReward,
+        assignee_family_member_id: input.assigneeFamilyMemberId ?? null,
       });
       if (error) throw error;
     },

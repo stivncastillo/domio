@@ -21,8 +21,10 @@ export interface FamilyMember {
   displayName: string;
   role: FamilyRole;
   avatarUrl: string | null;
-  level: number;
-  xp: number;
+  // No hay level/xp individual: no hay competencia entre integrantes,
+  // solo el Domio sube de nivel (ver DomioProgress). Lo individual es
+  // la moneda gastable en recompensas.
+  coins: number;
   streakDays: number;
 }
 
@@ -33,7 +35,9 @@ export interface Mission {
   type: MissionType;
   isMandatory: boolean;
   xpReward: number;
-  assignedTo: string[]; // ids de FamilyMember
+  coinReward: number; // solo se entrega en misiones "single", ver hooks/useMissions.ts
+  assignedTo: string[]; // ids de FamilyMember (hoy: a lo sumo uno, ver hooks/useMissions.ts)
+  assigneeName: string | null; // display_name del asignado, para mostrar en la UI sin otro fetch
   status: MissionStatus;
   dueAt: string | null; // ISO date
 }
@@ -42,7 +46,10 @@ export interface Reward {
   id: string;
   familyId: string;
   title: string;
-  costPoints: number;
+  costCoins: number;
+  // Nivel que el Domio (no el integrante) tiene que haber alcanzado
+  // para que esta recompensa se pueda reclamar, ademas de las coins.
+  minDomioLevel: number;
   isFamilyReward: boolean;
 }
 

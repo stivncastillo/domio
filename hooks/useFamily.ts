@@ -40,11 +40,13 @@ export interface FamilyMemberWithProfile {
   profileId: string;
   displayName: string;
   role: FamilyRole;
-  level: number;
-  xp: number;
+  coins: number;
   streakDays: number;
 }
 
+// Ojo: no hay level/xp acá a propósito — no hay competencia entre
+// integrantes, así que solo el Domio sube de nivel (useDomioProgress).
+// Lo individual es la moneda (coins).
 export function useFamilyMembers(familyId: string | undefined) {
   return useQuery({
     queryKey: ["family-members", familyId],
@@ -54,7 +56,7 @@ export function useFamilyMembers(familyId: string | undefined) {
       // automaticamente, sin necesidad de un join manual.
       const { data, error } = await supabase
         .from("family_members")
-        .select("id, profile_id, role, level, xp, streak_days, profiles(display_name)")
+        .select("id, profile_id, role, coins, streak_days, profiles(display_name)")
         .eq("family_id", familyId as string)
         .order("joined_at", { ascending: true });
 
@@ -65,8 +67,7 @@ export function useFamilyMembers(familyId: string | undefined) {
         profileId: m.profile_id,
         displayName: m.profiles?.display_name ?? "—",
         role: m.role,
-        level: m.level,
-        xp: m.xp,
+        coins: m.coins,
         streakDays: m.streak_days,
       }));
     },

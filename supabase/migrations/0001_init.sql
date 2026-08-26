@@ -61,13 +61,15 @@ alter table families enable row level security;
 -- ============================================================
 create type family_role as enum ('admin', 'member');
 
+-- No hay level/xp individual acá a propósito: no hay competencia
+-- entre integrantes de una familia, así que el único que sube de
+-- nivel es el Domio (ver domio_progress más abajo). Lo individual es
+-- la moneda (coins, agregada en 0009_rewards_and_coins.sql).
 create table if not exists family_members (
   id uuid primary key default gen_random_uuid(),
   family_id uuid not null references families (id) on delete cascade,
   profile_id uuid not null references profiles (id) on delete cascade,
   role family_role not null default 'member',
-  level integer not null default 1,
-  xp integer not null default 0,
   streak_days integer not null default 0,
   joined_at timestamptz not null default now(),
   unique (family_id, profile_id)

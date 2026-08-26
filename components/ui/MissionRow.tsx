@@ -3,7 +3,7 @@ import { Pressable, Text, View } from "react-native";
 import type { Mission } from "@/types/domain";
 
 interface MissionRowProps {
-  mission: Pick<Mission, "title" | "xpReward" | "status" | "type">;
+  mission: Pick<Mission, "title" | "xpReward" | "coinReward" | "status" | "type" | "assigneeName">;
   onToggle?: () => void;
 }
 
@@ -21,13 +21,22 @@ export function MissionRow({ mission, onToggle }: MissionRowProps) {
         >
           {mission.title}
         </Text>
-        {mission.type === "family" && (
+        {mission.type === "family" ? (
           <Text className="text-xs text-domio-secondary">
             👨‍👩‍👧 Familiar — el XP va al Domio
           </Text>
+        ) : (
+          <Text className="text-xs text-domio-muted">
+            {mission.assigneeName ? `Asignada a ${mission.assigneeName}` : "Sin asignar"}
+          </Text>
         )}
       </View>
-      <Text className="font-semibold text-domio-primary">+{mission.xpReward} XP</Text>
+      <View className="items-end">
+        <Text className="font-semibold text-domio-primary">+{mission.xpReward} XP</Text>
+        {mission.type !== "family" && mission.coinReward > 0 && (
+          <Text className="text-xs text-domio-secondary">+{mission.coinReward} 🪙</Text>
+        )}
+      </View>
     </Pressable>
   );
 }

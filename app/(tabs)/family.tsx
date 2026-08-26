@@ -58,11 +58,10 @@ export default function FamilyScreen() {
                 {item.profileId === session?.user.id ? " (vos)" : ""}
               </Text>
               <Text className="text-xs text-domio-muted">
-                {item.role === "admin" ? "Admin" : "Miembro"} · Nivel {item.level} · 🔥{" "}
-                {item.streakDays} dias
+                {item.role === "admin" ? "Admin" : "Miembro"} · 🔥 {item.streakDays} dias
               </Text>
             </View>
-            <Text className="font-semibold text-domio-primary">{item.xp} XP</Text>
+            <Text className="font-semibold text-domio-secondary">🪙 {item.coins}</Text>
           </View>
         )}
       />
