@@ -1,6 +1,7 @@
 import { Tabs } from "expo-router";
-import { Text } from "react-native";
+import { Text, View } from "react-native";
 
+import { MissionPenaltyCard } from "@/components/domi/MissionPenaltyCard";
 import { useAuth } from "@/hooks/useAuth";
 import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
 import { useRealtimeSync } from "@/hooks/useRealtimeSync";
@@ -21,48 +22,54 @@ export default function TabsLayout() {
   useRealtimeSync(familyMember?.family_id as string | undefined);
 
   return (
-    <Tabs
-      screenOptions={{
-        headerShown: false,
-        tabBarActiveTintColor: "#F5B942",
-        tabBarStyle: { backgroundColor: "#1B1F33", borderTopColor: "#0F1220" },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Domio",
-          tabBarIcon: ({ color }) => <Text style={{ color }}>🏠</Text>,
+    // El card flotante va afuera de <Tabs> pero adentro de este
+    // wrapper, asi queda montado una sola vez y visible arriba de
+    // cualquier tab (usa position: absolute, ver MissionPenaltyCard).
+    <View className="flex-1">
+      <MissionPenaltyCard />
+      <Tabs
+        screenOptions={{
+          headerShown: false,
+          tabBarActiveTintColor: "#F5B942",
+          tabBarStyle: { backgroundColor: "#1B1F33", borderTopColor: "#0F1220" },
         }}
-      />
-      <Tabs.Screen
-        name="missions"
-        options={{
-          title: "Misiones",
-          tabBarIcon: ({ color }) => <Text style={{ color }}>🎯</Text>,
-        }}
-      />
-      <Tabs.Screen
-        name="family"
-        options={{
-          title: "Familia",
-          tabBarIcon: ({ color }) => <Text style={{ color }}>👨‍👩‍👧</Text>,
-        }}
-      />
-      <Tabs.Screen
-        name="rewards"
-        options={{
-          title: "Recompensas",
-          tabBarIcon: ({ color }) => <Text style={{ color }}>🎁</Text>,
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Perfil",
-          tabBarIcon: ({ color }) => <Text style={{ color }}>🙂</Text>,
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Domio",
+            tabBarIcon: ({ color }) => <Text style={{ color }}>🏠</Text>,
+          }}
+        />
+        <Tabs.Screen
+          name="missions"
+          options={{
+            title: "Misiones",
+            tabBarIcon: ({ color }) => <Text style={{ color }}>🎯</Text>,
+          }}
+        />
+        <Tabs.Screen
+          name="family"
+          options={{
+            title: "Familia",
+            tabBarIcon: ({ color }) => <Text style={{ color }}>👨‍👩‍👧</Text>,
+          }}
+        />
+        <Tabs.Screen
+          name="rewards"
+          options={{
+            title: "Recompensas",
+            tabBarIcon: ({ color }) => <Text style={{ color }}>🎁</Text>,
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: "Perfil",
+            tabBarIcon: ({ color }) => <Text style={{ color }}>🙂</Text>,
+          }}
+        />
+      </Tabs>
+    </View>
   );
 }

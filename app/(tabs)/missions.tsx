@@ -11,6 +11,16 @@ import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
 import { useFamilyMembers } from "@/hooks/useFamily";
 import { useMissions, useCreateMission, useCompleteMission } from "@/hooks/useMissions";
 
+// Formato simple de texto para fecha/hora en vez de un date picker
+// nativo: agregar uno (ej. @react-native-community/datetimepicker) es
+// una dependencia nueva que requiere reconstruir el dev client, y este
+// entorno no tiene acceso al registry de npm para instalarla y
+// probarla (ver stack.md). Dos inputs de texto validados con regex
+// evitan esa dependencia por ahora — se puede reemplazar por un picker
+// nativo mas adelante sin tocar el resto del flujo.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
 const missionSchema = z
   .object({
     title: z.string().min(2, "Ponele un titulo"),
@@ -23,13 +33,46 @@ const missionSchema = z
     type: z.enum(["single", "family"]),
     isMandatory: z.boolean(),
     assigneeId: z.string().optional(),
+    // Vencimiento (0015_mission_deadlines_and_penalties.sql): solo se
+    // piden/usan cuando isMandatory es true — el constraint del lado
+    // de la base exige exactamente eso (obligatoria <=> fecha + XP a
+    // restar), asi que este form los valida antes de intentar crear.
+    dueDate: z.string().optional(),
+    dueTime: z.string().optional(),
+    xpPenalty: z.coerce
+      .number()
+      .int()
+      .min(1, "Minimo 1 XP")
+      .max(200, "Maximo 200 XP")
+      .optional(),
   })
   // Una mision "single" necesita saber quien la tiene que hacer — una
   // "family" no, porque cualquiera la puede completar.
   .refine((values) => values.type !== "single" || !!values.assigneeId, {
     message: "Elegí a quién se la asignás",
     path: ["assigneeId"],
-  });
+  })
+  .refine((values) => !values.isMandatory || DATE_RE.test(values.dueDate ?? ""), {
+    message: "Fecha inválida (formato AAAA-MM-DD)",
+    path: ["dueDate"],
+  })
+  .refine((values) => !values.isMandatory || TIME_RE.test(values.dueTime ?? ""), {
+    message: "Hora inválida (formato HH:MM, 24hs)",
+    path: ["dueTime"],
+  })
+  .refine((values) => !values.isMandatory || !!values.xpPenalty, {
+    message: "Decime cuánto XP resta si no se cumple",
+    path: ["xpPenalty"],
+  })
+  .refine(
+    (values) => {
+      if (!values.isMandatory) return true;
+      if (!DATE_RE.test(values.dueDate ?? "") || !TIME_RE.test(values.dueTime ?? "")) return true; // ya lo marcan los refine de arriba
+      const combined = new Date(`${values.dueDate}T${values.dueTime}:00`);
+      return combined.getTime() > Date.now();
+    },
+    { message: "La fecha de vencimiento tiene que ser en el futuro", path: ["dueDate"] },
+  );
 
 type MissionForm = z.infer<typeof missionSchema>;
 
@@ -63,13 +106,23 @@ export default function MissionsScreen() {
       type: "single",
       isMandatory: false,
       assigneeId: "",
+      dueDate: "",
+      dueTime: "",
+      xpPenalty: 20,
     },
   });
 
   const type = watch("type");
+  const isMandatory = watch("isMandatory");
 
   const onSubmit = async (values: MissionForm) => {
     if (!familyId || !session) return;
+    // Combina fecha + hora en un solo timestamp ISO recien aca (no en
+    // el schema de zod) — mas simple mantener dueDate/dueTime como
+    // strings sueltos mientras se tipea en el form.
+    const dueAt = values.isMandatory
+      ? new Date(`${values.dueDate}T${values.dueTime}:00`).toISOString()
+      : undefined;
     try {
       await createMission.mutateAsync({
         familyId,
@@ -79,6 +132,8 @@ export default function MissionsScreen() {
         xpReward: values.xpReward,
         coinReward: values.coinReward,
         assigneeFamilyMemberId: values.type === "single" ? values.assigneeId : undefined,
+        dueAt,
+        xpPenalty: values.isMandatory ? values.xpPenalty : undefined,
       });
     } catch (err: any) {
       Alert.alert("No se pudo crear la misión", err?.message ?? "Intenta de nuevo");
@@ -182,9 +237,7 @@ export default function MissionsScreen() {
                   }`}
                   onPress={() => onChange("single")}
                 >
-                  <Text className={value === "single" ? "text-domio-bg" : "text-white"}>
-                    Única
-                  </Text>
+                  <Text className={value === "single" ? "text-domio-bg" : "text-white"}>Única</Text>
                 </Pressable>
                 <Pressable
                   className={`flex-1 items-center rounded-xl py-2 ${
@@ -247,6 +300,67 @@ export default function MissionsScreen() {
               </Pressable>
             )}
           />
+
+          {isMandatory && (
+            <>
+              <Text className="mb-2 text-domio-muted">Vence el</Text>
+              <View className="mb-1 flex-row gap-2">
+                <Controller
+                  control={control}
+                  name="dueDate"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      className="flex-1 rounded-xl bg-domio-bg px-4 py-3 text-white"
+                      placeholder="AAAA-MM-DD"
+                      placeholderTextColor="#7A7F9A"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                    />
+                  )}
+                />
+                <Controller
+                  control={control}
+                  name="dueTime"
+                  render={({ field: { onChange, onBlur, value } }) => (
+                    <TextInput
+                      className="w-24 rounded-xl bg-domio-bg px-4 py-3 text-white"
+                      placeholder="HH:MM"
+                      placeholderTextColor="#7A7F9A"
+                      onBlur={onBlur}
+                      onChangeText={onChange}
+                      value={value}
+                    />
+                  )}
+                />
+              </View>
+              {errors.dueDate && (
+                <Text className="mb-2 text-domio-danger">{errors.dueDate.message}</Text>
+              )}
+              {errors.dueTime && (
+                <Text className="mb-2 text-domio-danger">{errors.dueTime.message}</Text>
+              )}
+
+              <Controller
+                control={control}
+                name="xpPenalty"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
+                    placeholder="XP que resta si no se cumple (ej: 20)"
+                    placeholderTextColor="#7A7F9A"
+                    keyboardType="numeric"
+                    onBlur={onBlur}
+                    onChangeText={onChange}
+                    value={value === undefined ? "" : String(value)}
+                  />
+                )}
+              />
+              {errors.xpPenalty && (
+                <Text className="mb-2 text-domio-danger">{errors.xpPenalty.message}</Text>
+              )}
+            </>
+          )}
 
           <Pressable
             className="mt-2 items-center rounded-xl bg-domio-primary py-3"

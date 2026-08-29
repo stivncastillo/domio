@@ -12,20 +12,36 @@
  */
 import { create } from "zustand";
 
+import type { MissionPenaltyEvent } from "@/types/domain";
+
 export type DomiMood = "happy" | "calm" | "alert" | "tired";
 
 interface DomiUiState {
   mood: DomiMood;
   isCelebrating: boolean;
+  // Card de "misión no cumplida" (0015_mission_deadlines_and_penalties.sql):
+  // lo dispara hooks/useRealtimeSync.ts al llegar un INSERT en
+  // mission_penalties, lo lee components/domi/MissionPenaltyCard.tsx.
+  // null = no hay card para mostrar. Se guarda el id del evento para
+  // que el setTimeout que lo esconde (en useRealtimeSync) no borre por
+  // error un card MAS NUEVO que llegó mientras tanto.
+  missionPenalty: MissionPenaltyEvent | null;
   setMood: (mood: DomiMood) => void;
   celebrate: () => void;
   stopCelebrating: () => void;
+  showMissionPenalty: (event: MissionPenaltyEvent) => void;
+  dismissMissionPenalty: (id: string) => void;
 }
 
-export const useDomiStore = create<DomiUiState>((set) => ({
+export const useDomiStore = create<DomiUiState>((set, get) => ({
   mood: "calm",
   isCelebrating: false,
+  missionPenalty: null,
   setMood: (mood) => set({ mood }),
   celebrate: () => set({ isCelebrating: true }),
   stopCelebrating: () => set({ isCelebrating: false }),
+  showMissionPenalty: (event) => set({ missionPenalty: event }),
+  dismissMissionPenalty: (id) => {
+    if (get().missionPenalty?.id === id) set({ missionPenalty: null });
+  },
 }));

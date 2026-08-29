@@ -9,18 +9,35 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
 import { useFamilyMembers } from "@/hooks/useFamily";
 import { useDomioProgress } from "@/hooks/useDomioProgress";
-import { useRewards, useCreateReward, useRedeemReward } from "@/hooks/useRewards";
+import { useRewards, useRewardLockStatus, useCreateReward, useRedeemReward } from "@/hooks/useRewards";
+import type { RewardRedemptionLimitType } from "@/types/domain";
 
-const rewardSchema = z.object({
-  title: z.string().min(2, "Ponele un titulo"),
-  costCoins: z.coerce.number().int().min(1, "Minimo 1 moneda").max(500, "Maximo 500"),
-  // El Domio (no el integrante) tiene que llegar a este nivel para
-  // que la recompensa se pueda reclamar, ademas de tener las coins.
-  minDomioLevel: z.coerce.number().int().min(1, "Minimo nivel 1").max(99, "Maximo 99"),
-  isFamilyReward: z.boolean(),
-});
+const rewardSchema = z
+  .object({
+    title: z.string().min(2, "Ponele un titulo"),
+    costCoins: z.coerce.number().int().min(1, "Minimo 1 moneda").max(500, "Maximo 500"),
+    // El Domio (no el integrante) tiene que llegar a este nivel para
+    // que la recompensa se pueda reclamar, ademas de tener las coins.
+    minDomioLevel: z.coerce.number().int().min(1, "Minimo nivel 1").max(99, "Maximo 99"),
+    isFamilyReward: z.boolean(),
+    // Limite de canjes (0014_reward_redemption_limits.sql): sin
+    // limite, una sola vez, o cada X dias. El alcance (por integrante
+    // o compartido por toda la familia) sigue a isFamilyReward.
+    redemptionLimitType: z.enum(["unlimited", "once", "cooldown"]),
+    cooldownDays: z.coerce.number().int().min(1, "Minimo 1 día").max(365, "Maximo 365").optional(),
+  })
+  .refine((values) => values.redemptionLimitType !== "cooldown" || !!values.cooldownDays, {
+    message: "Decime cada cuántos días se puede reclamar",
+    path: ["cooldownDays"],
+  });
 
 type RewardForm = z.infer<typeof rewardSchema>;
+
+const LIMIT_OPTIONS: { value: RewardRedemptionLimitType; label: string }[] = [
+  { value: "unlimited", label: "Sin límite" },
+  { value: "once", label: "Una sola vez" },
+  { value: "cooldown", label: "Cada X días" },
+];
 
 export default function RewardsScreen() {
   const [showForm, setShowForm] = useState(false);
@@ -33,6 +50,10 @@ export default function RewardsScreen() {
   const isAdmin = familyMember?.role === "admin";
 
   const { data: rewards, isLoading } = useRewards(familyId);
+  // Bloqueo por limite de canjes (once/cooldown) — viene de una RPC
+  // aparte porque un miembro comun no puede ver los canjes de OTRO
+  // integrante via RLS normal (ver hooks/useRewards.ts).
+  const { data: lockStatusByRewardId } = useRewardLockStatus(familyId);
   // No hay un hook propio para "mis coins" — se lee de la misma lista
   // de integrantes que ya usa la tab Familia.
   const { data: familyMembers } = useFamilyMembers(familyId);
@@ -49,11 +70,21 @@ export default function RewardsScreen() {
     control,
     handleSubmit,
     reset,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<RewardForm>({
     resolver: zodResolver(rewardSchema),
-    defaultValues: { title: "", costCoins: 20, minDomioLevel: 1, isFamilyReward: false },
+    defaultValues: {
+      title: "",
+      costCoins: 20,
+      minDomioLevel: 1,
+      isFamilyReward: false,
+      redemptionLimitType: "unlimited",
+      cooldownDays: 15,
+    },
   });
+
+  const redemptionLimitType = watch("redemptionLimitType");
 
   const onSubmit = async (values: RewardForm) => {
     if (!familyId) return;
@@ -68,8 +99,9 @@ export default function RewardsScreen() {
       await redeemReward.mutateAsync(rewardId);
     } catch (err: any) {
       // redeem_reward puede fallar si justo se gastaron las coins en
-      // otro lado (o dos taps rapidos) — el mensaje viene tal cual de
-      // la excepcion de Postgres.
+      // otro lado (o dos taps rapidos), o si el limite de canjes ya
+      // no lo permite — el mensaje viene tal cual de la excepcion de
+      // Postgres.
       Alert.alert("No se pudo reclamar", err.message ?? "Intenta de nuevo");
     } finally {
       setRedeemingId(null);
@@ -172,6 +204,58 @@ export default function RewardsScreen() {
             )}
           />
 
+          {/*
+            Limite de canjes (0014_reward_redemption_limits.sql). El
+            alcance sigue a "es recompensa familiar" de arriba: si es
+            familiar el limite es compartido por toda la familia, si
+            es individual cada integrante tiene su propio contador.
+          */}
+          <Text className="mb-2 mt-1 text-domio-muted">Límite de canjes</Text>
+          <Controller
+            control={control}
+            name="redemptionLimitType"
+            render={({ field: { onChange, value } }) => (
+              <View className="mb-2 flex-row gap-2">
+                {LIMIT_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.value}
+                    className={`flex-1 items-center rounded-xl py-2 ${
+                      value === opt.value ? "bg-domio-primary" : "bg-domio-bg"
+                    }`}
+                    onPress={() => onChange(opt.value)}
+                  >
+                    <Text className={value === opt.value ? "text-domio-bg" : "text-white"}>
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          />
+
+          {redemptionLimitType === "cooldown" && (
+            <>
+              <Controller
+                control={control}
+                name="cooldownDays"
+                render={({ field: { onChange, onBlur, value } }) => (
+                  <TextInput
+                    className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
+                    placeholder="Cada cuántos días (ej: 15)"
+                    placeholderTextColor="#7A7F9A"
+                    keyboardType="numeric"
+                    onBlur={onBlur}
+                    onChangeText={onChange}
+                    value={value ? String(value) : ""}
+                  />
+                )}
+              />
+              {errors.cooldownDays && (
+                <Text className="mb-2 text-domio-danger">{errors.cooldownDays.message}</Text>
+              )}
+            </>
+          )}
+
           <Pressable
             className="mt-2 items-center rounded-xl bg-domio-primary py-3"
             disabled={isSubmitting}
@@ -199,12 +283,23 @@ export default function RewardsScreen() {
             </Text>
           }
           renderItem={({ item }) => {
-            // Las dos condiciones tienen que cumplirse a la vez: el
-            // Domio en el nivel pedido Y las coins alcanzando (ver
-            // redeem_reward en 0009_rewards_and_coins.sql).
+            // Tres condiciones tienen que cumplirse a la vez: el Domio
+            // en el nivel pedido, las coins alcanzando, y el limite de
+            // canjes sin bloquear (ver redeem_reward en
+            // 0009_rewards_and_coins.sql / 0014_reward_redemption_limits.sql).
             const meetsLevel = domioLevel >= item.minDomioLevel;
             const canAfford = myCoins >= item.costCoins;
-            const canRedeem = meetsLevel && canAfford;
+            const lockStatus = lockStatusByRewardId?.[item.id];
+            const isLockedByLimit = lockStatus?.isLocked ?? false;
+            const canRedeem = meetsLevel && canAfford && !isLockedByLimit;
+
+            const limitLabel =
+              item.redemptionLimitType === "once"
+                ? "Una sola vez"
+                : item.redemptionLimitType === "cooldown"
+                  ? `Cada ${item.cooldownDays} días`
+                  : null;
+
             return (
               <View className="mb-2 flex-row items-center justify-between rounded-xl bg-domio-card px-4 py-3">
                 <View className="flex-1">
@@ -212,10 +307,22 @@ export default function RewardsScreen() {
                   <Text className="text-xs text-domio-muted">
                     {item.isFamilyReward ? "👨‍👩‍👧 Familiar" : "Individual"} · {item.costCoins} 🪙
                     {item.minDomioLevel > 1 ? ` · Domio nivel ${item.minDomioLevel}` : ""}
+                    {limitLabel ? ` · ${limitLabel}` : ""}
                   </Text>
                   {!meetsLevel && (
                     <Text className="text-xs text-domio-danger">
                       🔒 El Domio todavía no llegó a nivel {item.minDomioLevel}
+                    </Text>
+                  )}
+                  {meetsLevel && isLockedByLimit && item.redemptionLimitType === "once" && (
+                    <Text className="text-xs text-domio-danger">🔒 Ya fue reclamada (una sola vez)</Text>
+                  )}
+                  {meetsLevel && isLockedByLimit && item.redemptionLimitType === "cooldown" && (
+                    <Text className="text-xs text-domio-danger">
+                      🔒 Disponible de nuevo el{" "}
+                      {lockStatus?.availableAt
+                        ? new Date(lockStatus.availableAt).toLocaleDateString()
+                        : "..."}
                     </Text>
                   )}
                 </View>

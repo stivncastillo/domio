@@ -87,6 +87,11 @@ supabase/
                                   (arregla un bug real al reclamar
                                   recompensas). También hace falta en
                                   cualquier instalación.
+    0014_reward_redemption_limits.sql   Límite de canjes por recompensa
+                                  (una sola vez, o cada X días) + RPC
+                                  reward_lock_status_for_family para
+                                  mostrarlo en la UI. También hace
+                                  falta en cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -112,15 +117,15 @@ instalado — es normal y recomendado correrlo despues de cualquier
    `0003_missions.sql`, `0006_invite_members.sql`,
    `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
    `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql`,
-   `0011_family_mission_coins.sql`, `0012_domio_level_curve.sql` y
-   `0013_reward_redemptions_insert_policy.sql` (cada uno en una query
-   nueva, en ese orden). Si es un proyecto de Supabase nuevo, no
-   corras `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` —
-   ya no
+   `0011_family_mission_coins.sql`, `0012_domio_level_curve.sql`,
+   `0013_reward_redemptions_insert_policy.sql` y
+   `0014_reward_redemption_limits.sql` (cada uno en una query nueva,
+   en ese orden). Si es un proyecto de Supabase nuevo, no corras
+   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
    hacen falta, esos tres primeros nomenclatura en ingles y sin el
    campo emoji (ver "Convencion de idioma" mas abajo). `0006`, `0007`,
-   `0008`, `0009`, `0010`, `0011`, `0012` y `0013` sí corren siempre,
-   en cualquier instalación.
+   `0008`, `0009`, `0010`, `0011`, `0012`, `0013` y `0014` sí corren
+   siempre, en cualquier instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -256,6 +261,83 @@ invalida la query `["family-member", userId]` y el router pasa solo a
   evaluación se comporta distinto en el contexto de RETURNING que en
   un SELECT aparte). La RPC, al ser `security definer`, resuelve esto
   igual que `create_family`/`join_family`.
+- El checkbox **"Obligatoria"** ahora sí hace lo que su label siempre
+  dijo ("resta XP si no se cumple") — ver "Vencimiento de misiones y
+  penalización de XP" más abajo.
+
+## Vencimiento de misiones y penalización de XP (2026-08-29)
+
+Una misión marcada **Obligatoria** ahora tiene que tener fecha/hora de
+vencimiento y cuánto XP le resta al Domio si no se cumple a tiempo —
+las dos cosas juntas, no por separado (un `check` constraint en
+`missions` lo exige: `is_mandatory` implica `due_at` + `xp_penalty`
+ambos presentes). Una misión no obligatoria sigue sin vencimiento,
+igual que siempre.
+
+- **`supabase/migrations/0015_mission_deadlines_and_penalties.sql`**
+  (aplica en cualquier instalación): agrega `missions.xp_penalty`, el
+  constraint de arriba, y extiende `create_mission` con dos parámetros
+  nuevos (`mission_due_at`, `mission_xp_penalty`) — como
+  `create or replace function` no permite cambiarle la lista de
+  parámetros a una función ya aplicada, esta migración primero
+  `drop`ea la versión vieja de 7 parámetros (`0010`) y crea la nueva
+  de 9.
+  - **Ojo si ya tenías misiones "Obligatoria" creadas antes de esta
+    migración**: como ese checkbox no hacía nada hasta ahora, es
+    esperable tener misiones viejas con `is_mandatory = true` pero sin
+    fecha/penalización — el constraint nuevo las rechaza de entrada
+    (`check constraint "mission_mandatory_needs_deadline_and_penalty"
+    ... is violated by some row`). La migración ya incluye un
+    `update` que las des-marca como obligatorias automáticamente
+    antes de agregar el constraint (no se les inventa una fecha de la
+    nada); si querés que alguna de esas misiones tenga vencimiento de
+    verdad, volvé a editarla desde la app después de correr la
+    migración.
+- **Detección de vencidas**: se evaluaron dos opciones con Stiven (vía
+  AskUserQuestion) y se eligió la más simple — **chequeo bajo demanda
+  cuando alguien de la familia abre la app**, no un cron de Supabase
+  (pg_cron). La RPC nueva `process_overdue_missions(family_id)` se
+  llama una vez desde `hooks/useRealtimeSync.ts` (mismo lugar donde ya
+  se monta la suscripción de Realtime) cada vez que alguien entra a
+  `(tabs)`: busca misiones obligatorias `pending` con `due_at` en el
+  pasado, las marca `failed`, resta `xp_penalty` al `current_xp` del
+  Domio (sin bajar de 0, sin afectar el nivel) y deja un registro en
+  la tabla nueva `mission_penalties`. Contra conocida y aceptada: si
+  nadie abre la app, la penalización se aplica recién cuando alguien
+  entra, no exactamente a la hora del vencimiento.
+- **Card de aviso**: `mission_penalties` se agregó a la publicación de
+  Realtime. `hooks/useRealtimeSync.ts` escucha sus INSERT y llama a
+  `useDomiStore.showMissionPenalty(...)`, que dispara
+  `components/domi/MissionPenaltyCard.tsx` — un card flotante montado
+  una sola vez en `app/(tabs)/_layout.tsx` (visible sin importar en
+  qué tab estés) con el título de la misión y el XP perdido. Se
+  esconde solo a los 5 minutos (`setTimeout` en `useRealtimeSync`,
+  cancelable a mano con el botón "✕" del card) — se decidió que el
+  card se muestre **a toda la familia** (vía AskUserQuestion), mismo
+  criterio que ya usan las animaciones de Domi al ganar XP, porque el
+  XP perdido es del Domio (colectivo), no de un integrante en
+  particular.
+- **Form de misiones**: cuando se tilda "Obligatoria" aparecen tres
+  campos nuevos — fecha (`AAAA-MM-DD`), hora (`HH:MM`, 24hs) y "XP que
+  resta si no se cumple". Son inputs de texto simples, no un date
+  picker nativo: agregar uno (ej.
+  `@react-native-community/datetimepicker`) es una dependencia nueva
+  que requeriría reconstruir el dev client, y este entorno de
+  desarrollo no tiene acceso al registry de npm para instalarla y
+  probarla — queda como mejora posible más adelante, sin tocar el
+  resto del flujo.
+- De paso se corrigió un detalle que había quedado desactualizado en
+  `components/ui/MissionRow.tsx`: el badge de coins se ocultaba para
+  misiones `family` (`mission.type !== "family"`), herencia de antes
+  de `0011_family_mission_coins.sql` cuando las coins solo se pagaban
+  en `single`. Ahora se muestra para los dos tipos, que es como
+  efectivamente reparte coins `complete_mission` desde 0011.
+
+Pendiente de que Stiven confirme: correr
+`0015_mission_deadlines_and_penalties.sql` en su SQL Editor, crear una
+misión obligatoria con vencimiento cercano (unos minutos) y volver a
+abrir la app después de esa hora para ver el card y la misión marcada
+como no cumplida.
 
 ## Curva de nivel del Domio (2026-08-26)
 
@@ -423,6 +505,65 @@ nuevo ya nazca sin `xp`/`level` individual):
   y un botón "Reclamar" que se deshabilita si falta cualquiera de las
   dos condiciones — con un 🔒 aclarando cuando es por nivel. Admin ve
   además el form de creación (con el campo de nivel mínimo).
+
+## Límite de canjes por recompensa (2026-08-26)
+
+Stiven pidió una restricción extra además de nivel + coins: "solo se
+pueden reclamar una vez cada x tiempo, una hamburguesa puede ser
+redimida 1 vez cada 15 días, un viaje solo puede ser redimido una vez,
+un vestuario solo puede ser redimido una vez."
+
+El alcance del límite (confirmado vía AskUserQuestion) sigue al campo
+`is_family_reward` que ya existía (hasta ahora puramente decorativo):
+
+- **Recompensa individual**: cada integrante tiene su propio contador
+  — la hamburguesa de un integrante no bloquea la de otro.
+- **Recompensa familiar**: el límite es compartido por toda la
+  familia — el viaje se agota para todos apenas uno lo reclama, sin
+  importar quién.
+
+Implementado en `supabase/migrations/0014_reward_redemption_limits.sql`
+(aplica en cualquier instalación):
+
+- `rewards.redemption_limit_type` (enum `unlimited` | `once` |
+  `cooldown`, default `unlimited`) + `rewards.cooldown_days` (solo
+  tiene valor cuando el tipo es `cooldown`; hay un `check` en la
+  tabla que lo obliga).
+- **`redeem_reward`** ahora chequea el límite ANTES que nivel/coins:
+  para `once`, si ya existe algún canje que cuente (según el alcance
+  de arriba) lo rechaza para siempre; para `cooldown`, si el último
+  canje que cuenta fue hace menos de `cooldown_days`, lo rechaza hasta
+  esa fecha.
+- **RPC nueva `reward_lock_status_for_family(target_family_id)`**:
+  devuelve, para cada recompensa de la familia, si está bloqueada
+  ahora mismo y desde cuándo vuelve a estar disponible. Hace falta
+  como RPC aparte (`security definer`) porque la policy de SELECT de
+  `reward_redemptions` solo deja ver tus propios canjes (o todos si
+  sos admin) — un integrante común no puede ver si OTRO ya canjeó una
+  recompensa familiar leyendo la tabla directo. Esta función solo
+  expone booleanos/fechas, nunca quién canjeó qué ni cuánto gastó.
+- `app/(tabs)/rewards.tsx`: el form de creación (admin) suma tres
+  chips ("Sin límite" / "Una sola vez" / "Cada X días", con el campo
+  de días cuando corresponde). La lista usa
+  `useRewardLockStatus` para mostrar 🔒 con el motivo exacto ("Ya fue
+  reclamada" o "Disponible de nuevo el ...") y deshabilita "Reclamar"
+  igual que con nivel/coins.
+
+## Reset de datos de juego (2026-08-29)
+
+Para vaciar misiones/recompensas/progreso sin perder usuarios, familias
+ni membresías (útil para volver a probar el onboarding desde cero, o
+limpiar datos de prueba), hay un script aparte —no es una migración,
+no cambia el schema— en `supabase/scripts/reset_game_data.sql`. Se
+corre a mano en el SQL Editor las veces que haga falta.
+
+Borra por completo `mission_completions`, `mission_assignees`,
+`missions`, `reward_redemptions` y `rewards`. Resetea (sin borrar la
+fila) `domio_progress` a nivel 1 y `family_members.coins` /
+`streak_days` a 0, porque son contadores derivados del historial que
+se acaba de borrar. No toca `auth.users`, `profiles`, `families` ni
+las filas de `family_members` (quién pertenece a qué familia y con
+qué rol). Es irreversible — sin backup automático.
 
 ## Proximos pasos sugeridos
 

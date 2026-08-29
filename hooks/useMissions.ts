@@ -25,7 +25,7 @@ export function useMissions(familyId: string | undefined) {
       const { data, error } = await supabase
         .from("missions")
         .select(
-          "id, title, type, is_mandatory, xp_reward, coin_reward, status, due_at, family_id, mission_assignees(family_member_id, family_members(profiles(display_name)))",
+          "id, title, type, is_mandatory, xp_reward, coin_reward, status, due_at, xp_penalty, family_id, mission_assignees(family_member_id, family_members(profiles(display_name)))",
         )
         .eq("family_id", familyId as string)
         .order("created_at", { ascending: false });
@@ -46,6 +46,7 @@ export function useMissions(familyId: string | undefined) {
           assigneeName: assignee?.family_members?.profiles?.display_name ?? null,
           status: m.status,
           dueAt: m.due_at,
+          xpPenalty: m.xp_penalty,
         };
       });
     },
@@ -65,6 +66,13 @@ interface CreateMissionInput {
   coinReward: number;
   /** id de family_members (no de profiles) — obligatorio para type "single". */
   assigneeFamilyMemberId?: string;
+  /**
+   * Vencimiento (0015): obligatorios los dos juntos cuando isMandatory
+   * es true, ausentes cuando es false — validado en el form (zod) Y en
+   * la RPC/constraint del lado de la base.
+   */
+  dueAt?: string; // ISO date
+  xpPenalty?: number;
 }
 
 export function useCreateMission() {
@@ -93,6 +101,8 @@ export function useCreateMission() {
         mission_xp_reward: input.xpReward,
         mission_coin_reward: input.coinReward,
         assignee_family_member_id: input.assigneeFamilyMemberId ?? null,
+        mission_due_at: input.dueAt ?? null,
+        mission_xp_penalty: input.xpPenalty ?? 0,
       });
       if (error) throw error;
     },
