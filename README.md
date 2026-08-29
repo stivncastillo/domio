@@ -82,6 +82,11 @@ supabase/
                                   Domio (fácil hasta nivel 10, exponencial
                                   después). También hace falta en cualquier
                                   instalación.
+    0013_reward_redemptions_insert_policy.sql   Agrega la policy de INSERT
+                                  que le faltaba a reward_redemptions
+                                  (arregla un bug real al reclamar
+                                  recompensas). También hace falta en
+                                  cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -107,14 +112,15 @@ instalado — es normal y recomendado correrlo despues de cualquier
    `0003_missions.sql`, `0006_invite_members.sql`,
    `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
    `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql`,
-   `0011_family_mission_coins.sql` y `0012_domio_level_curve.sql`
-   (cada uno en una query nueva, en ese orden). Si es un proyecto de
-   Supabase nuevo, no corras `0004_rename_to_english.sql` ni
-   `0005_remove_emoji.sql` — ya no
+   `0011_family_mission_coins.sql`, `0012_domio_level_curve.sql` y
+   `0013_reward_redemptions_insert_policy.sql` (cada uno en una query
+   nueva, en ese orden). Si es un proyecto de Supabase nuevo, no
+   corras `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` —
+   ya no
    hacen falta, esos tres primeros nomenclatura en ingles y sin el
    campo emoji (ver "Convencion de idioma" mas abajo). `0006`, `0007`,
-   `0008`, `0009`, `0010`, `0011` y `0012` sí corren siempre, en
-   cualquier instalación.
+   `0008`, `0009`, `0010`, `0011`, `0012` y `0013` sí corren siempre,
+   en cualquier instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
    click en un email de confirmacion antes de poder entrar, y el
@@ -405,7 +411,12 @@ nuevo ya nazca sin `xp`/`level` individual):
   llegado al `min_domio_level` de la recompensa **Y** que alcancen las
   `coins`, descuenta y registra el canje en `reward_redemptions`, todo
   en una transacción — evita quedar en negativo por dos taps rápidos
-  en "Reclamar".
+  en "Reclamar". Necesita la policy de INSERT en `reward_redemptions`
+  agregada en `0013_reward_redemptions_insert_policy.sql` — sin ella
+  el insert final de la función explota con "violates row-level
+  security policy" (a `reward_redemptions` le faltaba esa policy desde
+  el scaffold original; `mission_completions` sí la tenía, por eso
+  `complete_mission` nunca tuvo este problema).
 - Tab **Recompensas** (`app/(tabs)/rewards.tsx`, antes placeholder):
   muestra tu balance de coins y el nivel actual del Domio arriba, la
   lista de recompensas con su costo y su nivel mínimo (si tiene uno),

@@ -956,11 +956,9 @@ Para una primera versión, el producto puede reducirse a:
 - Completar misión.
 
 ### Gamificación
-- XP individual.
-- XP familiar.
+- XP para el Domio
 - Nivel del Domio.
 - Racha familiar.
-- Niveles.
 
 ### Recompensas
 - Crear recompensa.
