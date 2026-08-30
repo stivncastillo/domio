@@ -29,6 +29,14 @@ export default function DashboardScreen() {
 
   const pending = (missions ?? []).filter((m) => m.status === "pending").slice(0, 3);
   const progress = domio && domio.xpToNextLevel > 0 ? domio.currentXp / domio.xpToNextLevel : 0;
+  // xpToNextLevel es el UMBRAL del nivel actual (no un "restante" —
+  // ver hooks/useDomioProgress.ts / 0012_domio_level_curve.sql), asi
+  // que lo que falta para subir de nivel es la resta. El Math.max es
+  // solo defensivo (no deberia pasar currentXp > xpToNextLevel, el
+  // trigger de complete_mission sube de nivel apenas se cruza el
+  // umbral) para no mostrar "Faltan -20 XP" si algun dato queda
+  // desincronizado un instante.
+  const xpRemaining = domio ? Math.max(domio.xpToNextLevel - domio.currentXp, 0) : 0;
 
   return (
     <ScrollView className="flex-1 bg-domio-bg px-4 pt-16" contentContainerStyle={{ gap: 16 }}>
@@ -36,6 +44,14 @@ export default function DashboardScreen() {
         <Text className="text-2xl font-bold text-white">Domio — Nivel {domio?.level ?? 1}</Text>
         <View className="mt-2">
           <ProgressBar progress={progress} />
+          <View className="mt-1 flex-row justify-between">
+            <Text className="text-xs text-domio-muted">
+              {domio?.currentXp ?? 0} / {domio?.xpToNextLevel ?? 0} XP
+            </Text>
+            <Text className="text-xs font-semibold text-domio-primary">
+              Faltan {xpRemaining} XP para el nivel {(domio?.level ?? 1) + 1}
+            </Text>
+          </View>
         </View>
         <Text className="mt-1 text-domio-muted">
           🔥 Racha familiar: {domio?.familyStreakDays ?? 0} dias

@@ -409,6 +409,37 @@ su SQL Editor, completar una misión y ver que la racha familiar suba
 en el Dashboard, y confirmar visualmente que la barra de XP del Domio
 ahora se ve y se anima.
 
+## XP numérico en el Dashboard (2026-08-30)
+
+Antes de este cambio, el Home solo mostraba la barra de progreso del
+Domio sin ningún número — no había forma de saber cuánto XP tenía
+exactamente ni cuánto faltaba para el próximo nivel salvo "mirando el
+largo de la barra".
+
+Se agregó una fila de texto justo debajo de la barra de XP (mismo
+patrón que ya usaba la tarjeta de "Reto familiar" para mostrar
+"38 / 50"), con dos datos a la vez:
+
+- Izquierda, en gris (`text-domio-muted`): `current_xp / xp_to_next_level XP`
+  — el XP acumulado en el nivel actual sobre el umbral de ese nivel.
+- Derecha, en el color de acento (`text-domio-primary`), en negrita:
+  `Faltan N XP para el nivel M` — lo que falta para subir de nivel.
+
+Importante para no confundirse con los nombres de las columnas:
+`domio_progress.xp_to_next_level` es el **umbral del nivel actual**
+(cuánto XP hay que juntar en total en este nivel), no un "restante" —
+ver `xp_required_for_level()` en `0012_domio_level_curve.sql`. Lo que
+falta para el próximo nivel es la resta `xp_to_next_level - current_xp`,
+calculada en el componente (con un `Math.max(..., 0)` puramente
+defensivo: `complete_mission` ya sube de nivel apenas `current_xp`
+cruza el umbral, así que no debería quedar nunca en negativo, pero
+evita mostrar "Faltan -20 XP" si algún dato queda desincronizado un
+instante).
+
+No hizo falta tocar ninguna migración ni ningún hook — `useDomioProgress`
+ya traía `currentXp` y `xpToNextLevel`, solo faltaba mostrarlos en
+`app/(tabs)/index.tsx`.
+
 ## Curva de nivel del Domio (2026-08-26)
 
 Antes de esto el umbral para subir de nivel era fijo: nivel 1→2 ya
