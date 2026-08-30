@@ -9,7 +9,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { supabase } from "@/lib/supabase";
-import type { Mission, MissionType } from "@/types/domain";
+import type { Mission, MissionComplexity, MissionType } from "@/types/domain";
 
 export function useMissions(familyId: string | undefined) {
   return useQuery({
@@ -25,7 +25,7 @@ export function useMissions(familyId: string | undefined) {
       const { data, error } = await supabase
         .from("missions")
         .select(
-          "id, title, type, is_mandatory, xp_reward, coin_reward, status, due_at, xp_penalty, family_id, mission_assignees(family_member_id, family_members(profiles(display_name)))",
+          "id, title, type, is_mandatory, complexity, xp_reward, coin_reward, status, due_at, xp_penalty, family_id, mission_assignees(family_member_id, family_members(profiles(display_name)))",
         )
         .eq("family_id", familyId as string)
         .order("created_at", { ascending: false });
@@ -40,6 +40,7 @@ export function useMissions(familyId: string | undefined) {
           title: m.title,
           type: m.type,
           isMandatory: m.is_mandatory,
+          complexity: m.complexity,
           xpReward: m.xp_reward,
           coinReward: m.coin_reward,
           assignedTo: assignee ? [assignee.family_member_id] : [],
@@ -61,18 +62,20 @@ interface CreateMissionInput {
   title: string;
   type: MissionType;
   isMandatory: boolean;
-  xpReward: number;
-  /** Solo se paga en misiones "single" (ver complete_mission, 0009). */
-  coinReward: number;
+  /**
+   * Complejidad (0017_mission_complexity.sql): define XP/coins/xp_penalty
+   * del lado de la base — el form ya NO manda esos numeros, solo esto.
+   */
+  complexity: MissionComplexity;
   /** id de family_members (no de profiles) — obligatorio para type "single". */
   assigneeFamilyMemberId?: string;
   /**
-   * Vencimiento (0015): obligatorios los dos juntos cuando isMandatory
-   * es true, ausentes cuando es false — validado en el form (zod) Y en
-   * la RPC/constraint del lado de la base.
+   * Vencimiento (0015): obligatorio cuando isMandatory es true, ausente
+   * cuando es false — validado en el form (zod) Y en la RPC/constraint
+   * del lado de la base. El XP a restar ya no se manda (0017): sale de
+   * `complexity`, igual que xpReward/coinReward.
    */
   dueAt?: string; // ISO date
-  xpPenalty?: number;
 }
 
 export function useCreateMission() {
@@ -98,11 +101,9 @@ export function useCreateMission() {
         mission_title: input.title,
         mission_type: input.type,
         mission_is_mandatory: input.isMandatory,
-        mission_xp_reward: input.xpReward,
-        mission_coin_reward: input.coinReward,
+        mission_complexity: input.complexity,
         assignee_family_member_id: input.assigneeFamilyMemberId ?? null,
         mission_due_at: input.dueAt ?? null,
-        mission_xp_penalty: input.xpPenalty ?? 0,
       });
       if (error) throw error;
     },

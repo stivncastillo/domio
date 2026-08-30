@@ -6,6 +6,34 @@
 
 export type MissionType = "single" | "recurring" | "habit" | "family";
 
+// Complejidad de la mision (0017_mission_complexity.sql): define el
+// XP/coins que da y, si es obligatoria, cuanto XP resta si no se
+// cumple — el admin YA NO los escribe a mano, elige solo la
+// complejidad y el resto sale de una tabla fija del lado de la base
+// (mission_xp_for_complexity / mission_coins_for_complexity). Los
+// valores de MISSION_COMPLEXITY_REWARDS de abajo son SOLO para
+// mostrar un preview en el form antes de crear la mision — la fuente
+// de verdad real es la base de datos (un CHECK constraint fuerza que
+// xp_reward/coin_reward/xp_penalty coincidan siempre con la
+// complejidad, asi que estos numeros tienen que coincidir con la
+// migracion si algun dia se cambian).
+export type MissionComplexity = "low" | "medium" | "high";
+
+export const MISSION_COMPLEXITY_LABELS: Record<MissionComplexity, string> = {
+  low: "Baja",
+  medium: "Media",
+  high: "Alta",
+};
+
+export const MISSION_COMPLEXITY_REWARDS: Record<
+  MissionComplexity,
+  { xp: number; coins: number }
+> = {
+  low: { xp: 15, coins: 8 },
+  medium: { xp: 30, coins: 15 },
+  high: { xp: 50, coins: 25 },
+};
+
 export type MissionStatus =
   | "pending"
   | "completed"
@@ -34,6 +62,7 @@ export interface Mission {
   title: string;
   type: MissionType;
   isMandatory: boolean;
+  complexity: MissionComplexity;
   xpReward: number;
   coinReward: number; // se entrega a quien completa la mision (single o family), ver hooks/useMissions.ts
   assignedTo: string[]; // ids de FamilyMember (hoy: a lo sumo uno, ver hooks/useMissions.ts)

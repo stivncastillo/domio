@@ -10,6 +10,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { useCurrentFamilyMember } from "@/hooks/useFamilyMember";
 import { useFamilyMembers } from "@/hooks/useFamily";
 import { useMissions, useCreateMission, useCompleteMission } from "@/hooks/useMissions";
+import {
+  MISSION_COMPLEXITY_LABELS,
+  MISSION_COMPLEXITY_REWARDS,
+  type MissionComplexity,
+} from "@/types/domain";
+
+// Orden fijo para los chips de complejidad (Baja -> Media -> Alta),
+// mas facil de leer que el orden alfabetico del enum de Postgres.
+const COMPLEXITY_OPTIONS: MissionComplexity[] = ["low", "medium", "high"];
 
 // Formato simple de texto para fecha/hora en vez de un date picker
 // nativo: agregar uno (ej. @react-native-community/datetimepicker) es
@@ -24,27 +33,19 @@ const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const missionSchema = z
   .object({
     title: z.string().min(2, "Ponele un titulo"),
-    xpReward: z.coerce.number().int().min(1, "Minimo 1 XP").max(200, "Maximo 200 XP"),
-    // Las coins se pagan en cualquier tipo de mision (ver complete_mission,
-    // 0011_family_mission_coins.sql): en "single" van al asignado, en
-    // "family" van a quien la completa. 0 es un valor valido, una mision
-    // puede dar solo XP y nada de moneda.
-    coinReward: z.coerce.number().int().min(0, "No puede ser negativo").max(200, "Maximo 200"),
+    // Complejidad (0017_mission_complexity.sql): reemplaza los campos
+    // sueltos de XP/coins — el admin ya no los escribe a mano, el
+    // valor sale de una tabla fija del lado de la base segun esto.
+    complexity: z.enum(["low", "medium", "high"]),
     type: z.enum(["single", "family"]),
     isMandatory: z.boolean(),
     assigneeId: z.string().optional(),
     // Vencimiento (0015_mission_deadlines_and_penalties.sql): solo se
     // piden/usan cuando isMandatory es true — el constraint del lado
-    // de la base exige exactamente eso (obligatoria <=> fecha + XP a
-    // restar), asi que este form los valida antes de intentar crear.
+    // de la base exige fecha (el XP a restar ya no se pide: desde
+    // 0017 sale de `complexity`, igual que el XP que se gana).
     dueDate: z.string().optional(),
     dueTime: z.string().optional(),
-    xpPenalty: z.coerce
-      .number()
-      .int()
-      .min(1, "Minimo 1 XP")
-      .max(200, "Maximo 200 XP")
-      .optional(),
   })
   // Una mision "single" necesita saber quien la tiene que hacer — una
   // "family" no, porque cualquiera la puede completar.
@@ -59,10 +60,6 @@ const missionSchema = z
   .refine((values) => !values.isMandatory || TIME_RE.test(values.dueTime ?? ""), {
     message: "Hora inválida (formato HH:MM, 24hs)",
     path: ["dueTime"],
-  })
-  .refine((values) => !values.isMandatory || !!values.xpPenalty, {
-    message: "Decime cuánto XP resta si no se cumple",
-    path: ["xpPenalty"],
   })
   .refine(
     (values) => {
@@ -91,6 +88,18 @@ export default function MissionsScreen() {
   const createMission = useCreateMission();
   const completeMission = useCompleteMission(familyId, session?.user.id);
 
+  // Bug real (2026-08-30): el admin ve TODAS las misiones de su
+  // familia (RLS de SELECT, 0008_mission_roles_and_assignment.sql —
+  // necesario para poder gestionarlas), pero eso no significa que
+  // pueda completar cualquiera — solo la puede completar quien esta
+  // asignado (o cualquiera si es "family"). Mismo criterio que valida
+  // 0018_complete_mission_assignee_check.sql del lado de la base;
+  // esto es solo para la UI (no mostrar el tap como si funcionara).
+  const canCompleteMission = (mission: { type: string; assignedTo: string[] }) =>
+    mission.type === "family" ||
+    mission.assignedTo.length === 0 || // mision vieja sin asignar: solo el admin llega a verla
+    (!!familyMember?.id && mission.assignedTo.includes(familyMember.id));
+
   const {
     control,
     handleSubmit,
@@ -101,19 +110,18 @@ export default function MissionsScreen() {
     resolver: zodResolver(missionSchema),
     defaultValues: {
       title: "",
-      xpReward: 10,
-      coinReward: 5,
+      complexity: "medium",
       type: "single",
       isMandatory: false,
       assigneeId: "",
       dueDate: "",
       dueTime: "",
-      xpPenalty: 20,
     },
   });
 
   const type = watch("type");
   const isMandatory = watch("isMandatory");
+  const complexity = watch("complexity");
 
   const onSubmit = async (values: MissionForm) => {
     if (!familyId || !session) return;
@@ -129,11 +137,9 @@ export default function MissionsScreen() {
         title: values.title,
         type: values.type,
         isMandatory: values.isMandatory,
-        xpReward: values.xpReward,
-        coinReward: values.coinReward,
+        complexity: values.complexity,
         assigneeFamilyMemberId: values.type === "single" ? values.assigneeId : undefined,
         dueAt,
-        xpPenalty: values.isMandatory ? values.xpPenalty : undefined,
       });
     } catch (err: any) {
       Alert.alert("No se pudo crear la misión", err?.message ?? "Intenta de nuevo");
@@ -181,43 +187,39 @@ export default function MissionsScreen() {
           />
           {errors.title && <Text className="mb-2 text-domio-danger">{errors.title.message}</Text>}
 
+          {/*
+            Complejidad (0017_mission_complexity.sql): reemplaza los
+            inputs sueltos de XP/coins que tenia el form antes. El
+            admin elige Baja/Media/Alta y el XP/coins salen de una
+            tabla fija del lado de la base (mismos valores que
+            MISSION_COMPLEXITY_REWARDS, solo para el preview de aca).
+          */}
+          <Text className="mb-2 text-domio-muted">Complejidad</Text>
           <Controller
             control={control}
-            name="xpReward"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextInput
-                className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
-                placeholder="XP (ej: 10)"
-                placeholderTextColor="#7A7F9A"
-                keyboardType="numeric"
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={String(value)}
-              />
+            name="complexity"
+            render={({ field: { onChange, value } }) => (
+              <View className="mb-1 flex-row gap-2">
+                {COMPLEXITY_OPTIONS.map((option) => (
+                  <Pressable
+                    key={option}
+                    className={`flex-1 items-center rounded-xl py-2 ${
+                      value === option ? "bg-domio-primary" : "bg-domio-bg"
+                    }`}
+                    onPress={() => onChange(option)}
+                  >
+                    <Text className={value === option ? "text-domio-bg" : "text-white"}>
+                      {MISSION_COMPLEXITY_LABELS[option]}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             )}
           />
-          {errors.xpReward && (
-            <Text className="mb-2 text-domio-danger">{errors.xpReward.message}</Text>
-          )}
-
-          <Controller
-            control={control}
-            name="coinReward"
-            render={({ field: { onChange, onBlur, value } }) => (
-              <TextInput
-                className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
-                placeholder="Monedas (ej: 5, se gastan en recompensas)"
-                placeholderTextColor="#7A7F9A"
-                keyboardType="numeric"
-                onBlur={onBlur}
-                onChangeText={onChange}
-                value={String(value)}
-              />
-            )}
-          />
-          {errors.coinReward && (
-            <Text className="mb-2 text-domio-danger">{errors.coinReward.message}</Text>
-          )}
+          <Text className="mb-2 text-xs text-domio-muted">
+            Da +{MISSION_COMPLEXITY_REWARDS[complexity].xp} XP y +
+            {MISSION_COMPLEXITY_REWARDS[complexity].coins} 🪙 al completarla
+          </Text>
 
           {/*
             "family" = "cualquiera la completa" (fase 1): el XP entero
@@ -341,24 +343,15 @@ export default function MissionsScreen() {
                 <Text className="mb-2 text-domio-danger">{errors.dueTime.message}</Text>
               )}
 
-              <Controller
-                control={control}
-                name="xpPenalty"
-                render={({ field: { onChange, onBlur, value } }) => (
-                  <TextInput
-                    className="mb-2 rounded-xl bg-domio-bg px-4 py-3 text-white"
-                    placeholder="XP que resta si no se cumple (ej: 20)"
-                    placeholderTextColor="#7A7F9A"
-                    keyboardType="numeric"
-                    onBlur={onBlur}
-                    onChangeText={onChange}
-                    value={value === undefined ? "" : String(value)}
-                  />
-                )}
-              />
-              {errors.xpPenalty && (
-                <Text className="mb-2 text-domio-danger">{errors.xpPenalty.message}</Text>
-              )}
+              {/*
+                La penalizacion (0017) tambien sale de la complejidad
+                ahora — mismo XP que da al completarla, ver
+                mission_xp_for_complexity en la migracion. Ya no hay
+                input para esto, solo se muestra cuanto es.
+              */}
+              <Text className="mb-2 text-xs text-domio-danger">
+                Si no se cumple, resta {MISSION_COMPLEXITY_REWARDS[complexity].xp} XP al Domio
+              </Text>
             </>
           )}
 
@@ -388,14 +381,24 @@ export default function MissionsScreen() {
                 : "Todavia no tenés misiones asignadas."}
             </Text>
           }
-          renderItem={({ item }) => (
-            <MissionRow
-              mission={item}
-              onToggle={
-                item.status === "pending" ? () => completeMission.mutate(item.id) : undefined
-              }
-            />
-          )}
+          renderItem={({ item }) => {
+            const completable = canCompleteMission(item);
+            return (
+              <MissionRow
+                mission={item}
+                onToggle={
+                  item.status === "pending" && completable
+                    ? () => completeMission.mutate(item.id)
+                    : undefined
+                }
+                lockedReason={
+                  item.status === "pending" && !completable
+                    ? `Solo la puede completar ${item.assigneeName ?? "el asignado"}`
+                    : undefined
+                }
+              />
+            );
+          }}
         />
       )}
     </View>

@@ -92,6 +92,14 @@ export function useRealtimeSync(familyId: string | undefined) {
         },
         () => {
           queryClient.invalidateQueries({ queryKey: ["domio-progress", familyId] });
+          // "EQUIPO DOMIO" en el Home (hooks/useFamily.ts,
+          // useWeeklyContributions): cada vez que alguien completa una
+          // mision, domio_progress se actualiza — piggybackeamos en
+          // ese mismo evento para refrescar el aporte semanal de cada
+          // integrante en TODOS los dispositivos conectados, sin
+          // agregar una suscripcion nueva (mismo criterio que la racha
+          // familiar en 0016_family_streak.sql).
+          queryClient.invalidateQueries({ queryKey: ["weekly-contributions", familyId] });
           // Hoy domio_progress solo sube (no hay logica que le reste
           // XP), asi que cualquier UPDATE es una buena excusa para que
           // Domi festeje un toque.

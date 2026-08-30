@@ -92,6 +92,27 @@ supabase/
                                   reward_lock_status_for_family para
                                   mostrarlo en la UI. También hace
                                   falta en cualquier instalación.
+    0015_mission_deadlines_and_penalties.sql   Vencimiento de misiones
+                                  obligatorias + penalización de XP al
+                                  Domio (xp_penalty, mission_penalties,
+                                  RPC process_overdue_missions).
+                                  También hace falta en cualquier
+                                  instalación.
+    0016_family_streak.sql       RPC recompute_family_streak — racha
+                                  familiar real (domio_progress.
+                                  family_streak_days). También hace
+                                  falta en cualquier instalación.
+    0017_mission_complexity.sql  Complejidad de misiones (Baja/Media/
+                                  Alta): el XP/coins/xp_penalty salen
+                                  de una tabla fija, no se escriben a
+                                  mano. También hace falta en
+                                  cualquier instalación.
+    0018_complete_mission_assignee_check.sql   Solo el asignado (o
+                                  cualquiera en misiones "family")
+                                  puede completar una misión — antes el
+                                  admin podía completar la de
+                                  cualquiera. También hace falta en
+                                  cualquier instalación.
 ```
 
 ## Puesta en marcha
@@ -118,13 +139,16 @@ instalado — es normal y recomendado correrlo despues de cualquier
    `0007_enable_realtime.sql`, `0008_mission_roles_and_assignment.sql`,
    `0009_rewards_and_coins.sql`, `0010_create_mission_rpc.sql`,
    `0011_family_mission_coins.sql`, `0012_domio_level_curve.sql`,
-   `0013_reward_redemptions_insert_policy.sql` y
-   `0014_reward_redemption_limits.sql` (cada uno en una query nueva,
-   en ese orden). Si es un proyecto de Supabase nuevo, no corras
-   `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` — ya no
-   hacen falta, esos tres primeros nomenclatura en ingles y sin el
-   campo emoji (ver "Convencion de idioma" mas abajo). `0006`, `0007`,
-   `0008`, `0009`, `0010`, `0011`, `0012`, `0013` y `0014` sí corren
+   `0013_reward_redemptions_insert_policy.sql`,
+   `0014_reward_redemption_limits.sql`,
+   `0015_mission_deadlines_and_penalties.sql`,
+   `0016_family_streak.sql`, `0017_mission_complexity.sql` y
+   `0018_complete_mission_assignee_check.sql` (cada uno en una query
+   nueva, en ese orden). Si es un proyecto de Supabase nuevo, no
+   corras `0004_rename_to_english.sql` ni `0005_remove_emoji.sql` —
+   ya no hacen falta, esos tres primeros nomenclatura en ingles y sin
+   el campo emoji (ver "Convencion de idioma" mas abajo). `0006` a
+   `0018` (salteando 0004/0005) sí corren
    siempre, en cualquier instalación.
 3. En **Authentication → Providers → Email**, apaga **"Confirm email"**
    mientras estas desarrollando (si no, cada usuario nuevo necesita
@@ -440,6 +464,105 @@ No hizo falta tocar ninguna migración ni ningún hook — `useDomioProgress`
 ya traía `currentXp` y `xpToNextLevel`, solo faltaba mostrarlos en
 `app/(tabs)/index.tsx`.
 
+## Complejidad de misiones: XP/coins ya no se escriben a mano (2026-08-30)
+
+Stiven pidió, palabras textuales: "calculemos que las misiones tengan
+complejidad, osea que el admin no ingrese el XP ni los coins, eso se
+maneja por debajo. Alta: urgente (se ganan Y xp, X coins). Media:
+moderada (se ganan menos xp y coins que la alta). Baja: facil (se gana
+poco)." Motivo de fondo: hasta ahora el admin escribía el XP/coins de
+cada misión a mano, sin ningún límite salvo el validador del form (1 a
+200) — un Domio podía llegar a nivel alto con pocas misiones si a
+alguien se le ocurría poner números grandes.
+
+Antes de implementar se resolvieron 3 preguntas de diseño con Stiven
+(via AskUserQuestion, con tablas de ejemplo mostrando cuántas misiones
+hacían falta para llegar a nivel 11 según cada opción):
+
+1. **Valores de XP/coins por complejidad**: eligió "Moderado" — Baja =
+   15 XP / 8 coins, Media = 30 XP / 15 coins, Alta = 50 XP / 25 coins.
+2. **Migración de misiones ya existentes** (que tenían XP/coins puestos
+   a mano): eligió asignarles a TODAS complejidad `medium`, sin
+   intentar adivinar por heurística cuál se parecía a cuál.
+3. **La penalización de XP** por no cumplir una misión obligatoria
+   (`xp_penalty`, ver sección de vencimiento de misiones más arriba)
+   también era un campo manual — eligió que pase a calcularse sola por
+   complejidad también, con el mismo criterio simétrico: se pierde el
+   mismo XP que se hubiera ganado al completarla.
+
+Implementado en `supabase/migrations/0017_mission_complexity.sql`
+(aplica en CUALQUIER instalación):
+
+- Enum `mission_complexity` (`low` | `medium` | `high`) + dos funciones
+  `immutable`, `mission_xp_for_complexity(complexity)` y
+  `mission_coins_for_complexity(complexity)` — un solo lugar define la
+  tabla de valores (mismo patrón que `xp_required_for_level()` en
+  0012_domio_level_curve.sql), se usan tanto en `create_mission` como
+  en un **CHECK constraint nuevo** (`mission_rewards_match_complexity`)
+  que exige `xp_reward = mission_xp_for_complexity(complexity)`,
+  `coin_reward = mission_coins_for_complexity(complexity)` y
+  `xp_penalty = mission_xp_for_complexity(complexity)` para TODA fila
+  de `missions`. Esto no es solo una validación del form: como es un
+  constraint de la base, ni siquiera un insert directo a la tabla
+  (saltándose `create_mission`) puede terminar con XP/coins que no
+  correspondan a la complejidad declarada — "se maneja por debajo"
+  queda garantizado por Postgres, no solo por la UI.
+- `missions.complexity` (columna nueva, default `medium`). Backfill:
+  TODAS las misiones existentes pasan a `medium`, y sus
+  `xp_reward`/`coin_reward`/`xp_penalty` se recalculan a los valores de
+  `medium` para no violar el constraint nuevo de entrada (los valores
+  viejos que tenían puestos a mano se pierden — decisión explícita de
+  Stiven en la pregunta 2 de arriba).
+- **`create_mission` recreada**: los parámetros `mission_xp_reward`,
+  `mission_coin_reward` y `mission_xp_penalty` se sacaron; se
+  reemplazan por un solo `mission_complexity` (default `medium`). La
+  función calcula XP/coins internamente con las dos funciones de
+  arriba antes de insertar — el cliente ya no puede mandar ningún
+  número, solo la complejidad. Mismo detalle técnico que en 0015:
+  `create or replace function` no permite cambiar la lista de
+  parámetros de una función ya aplicada, así que hizo falta un `drop
+  function if exists create_mission(...)` con la firma vieja de 9
+  parámetros antes de crear la nueva de 7.
+
+Frontend:
+
+- `types/domain.ts`: `MissionComplexity` (`"low" | "medium" | "high"`);
+  `Mission` gana `complexity`. `MISSION_COMPLEXITY_LABELS` (Baja/Media/
+  Alta, para mostrar) y `MISSION_COMPLEXITY_REWARDS` (los mismos
+  números que la migración, **solo para el preview del form** — la
+  fuente de verdad real sigue siendo la base, garantizada por el CHECK
+  constraint).
+- `hooks/useMissions.ts`: `useMissions` trae/mapea `complexity`.
+  `CreateMissionInput` perdió `xpReward`/`coinReward`/`xpPenalty`, gana
+  `complexity`; `useCreateMission` manda `mission_complexity` a la RPC
+  en vez de los tres números sueltos.
+- `app/(tabs)/missions.tsx`: los inputs numéricos de XP y monedas se
+  reemplazaron por 3 chips (Baja/Media/Alta) con un texto debajo
+  mostrando cuánto da esa complejidad ("Da +30 XP y +15 🪙 al
+  completarla"); cuando la misión es obligatoria, el input de "XP que
+  resta" también se sacó — se muestra el número calculado, no editable
+  ("Si no se cumple, resta 30 XP al Domio").
+- `components/ui/MissionRow.tsx`: cada misión de la lista ahora muestra
+  su complejidad ("Complejidad: Alta", con un color distinto por
+  nivel) además del XP/coins que ya mostraba.
+
+Pendiente de que Stiven confirme: correr
+`0017_mission_complexity.sql` en su SQL Editor (las misiones que ya
+tenía quedan en complejidad Media con los valores recalculados) y
+probar crear una misión de cada complejidad para confirmar que el
+XP/coins que se ganan al completarla coincide con lo que mostraba el
+preview del form.
+
+**Nota para el futuro (mencionada por Stiven, a pensar más adelante)**:
+nada impide hoy que el admin marque TODAS las misiones como Alta — la
+complejidad en sí es honesta (no hay forma de inflar el número dentro
+de un nivel), pero si alguien quisiera, podría poner todo en Alta para
+subir más rápido igual. Stiven lo notó y decidió explícitamente dejarlo
+para más adelante ("no sé cómo manejar eso, pero creo que lo pensamos
+después") — no se implementó ninguna mitigación todavía (ideas a futuro:
+límite de misiones Alta por día/semana, o que el nivel del Domio
+condicione qué complejidades puede crear el admin).
+
 ## Curva de nivel del Domio (2026-08-26)
 
 Antes de esto el umbral para subir de nivel era fijo: nivel 1→2 ya
@@ -650,6 +773,160 @@ Implementado en `supabase/migrations/0014_reward_redemption_limits.sql`
   reclamada" o "Disponible de nuevo el ...") y deshabilita "Reclamar"
   igual que con nivel/coins.
 
+## Bug real: el admin podía completar misiones asignadas a otro (2026-08-30)
+
+Stiven reportó, palabras textuales: "Hay algo raro, como admin creo
+las misiones, las asigno a otro miembro y las puedo completar, no
+debería dejar completar misiones que no están asignadas a mi usuario
+actual."
+
+Causa: `complete_mission` (última versión en 0012_domio_level_curve.sql)
+nunca chequeaba el asignado — solo validaba "sos miembro de la familia
+de esta misión". Para un integrante común esto no se notaba porque la
+RLS de `missions` (`can_view_mission`, 0008_mission_roles_and_assignment.sql)
+ya le oculta las misiones `single` que no son suyas — el `select`
+interno de la función (`security invoker`, corre bajo el RLS de quien
+llama) directamente no encontraba la fila, y la función explotaba con
+"Misión no encontrada" antes de llegar a completarla. Pero el ADMIN
+puede ver TODAS las misiones de su familia por diseño (para poder
+gestionar/asignar) — y esa visibilidad amplia se estaba colando como
+permiso de COMPLETAR, que es un permiso distinto: "puedo ver esta
+misión para administrarla" no implica "puedo marcarla como hecha yo
+mismo aunque sea de otro integrante".
+
+Fix en `supabase/migrations/0018_complete_mission_assignee_check.sql`
+(aplica en CUALQUIER instalación — el signature de `complete_mission`
+no cambia, así que no hizo falta ningún `drop function`):
+
+- `complete_mission` ahora chequea explícitamente `mission_assignees`:
+  si la misión NO es `family` Y tiene al menos un asignado registrado,
+  solo puede completarla quien está en esa lista — ni siquiera el
+  admin se salta esto. El chequeo se aplica siempre, sin depender de
+  la RLS de SELECT (que sigue dejando ver la misión al admin para
+  gestionarla, solo que ya no alcanza para completarla). Si una misión
+  quedó sin ningún asignado (dato huérfano viejo, ver la nota de
+  0008 más arriba), se sigue dejando pasar — de todos modos solo el
+  admin llega a verla.
+- Frontend (`app/(tabs)/missions.tsx` y `app/(tabs)/index.tsx`): mismo
+  criterio replicado del lado del cliente para no ofrecer un tap que
+  de todos modos iba a fallar — `canCompleteMission(mission)` decide
+  si se pasa `onToggle` a `MissionRow` o, en cambio, un `lockedReason`
+  ("🔒 Solo la puede completar {nombre}") que el componente muestra en
+  vez del botón de completar.
+- `components/ui/MissionRow.tsx` gana la prop `lockedReason?: string`.
+
+Antes de tocar `missions.tsx`/`index.tsx`/`MissionRow.tsx` se
+re-verificó (hábito de siempre) que el Mac no tuviera cambios manuales
+pendientes — sin diferencias en ninguno.
+
+Pendiente de que Stiven confirme: correr
+`0018_complete_mission_assignee_check.sql` en su SQL Editor, y probar
+como admin que una misión `single` asignada a otro integrante ya no
+se pueda completar (ni tocando la fila, ni si se intentara llamar a la
+RPC directo) — debería mostrar el candado en vez del botón.
+
+## Rediseño del Home (2026-08-30)
+
+Stiven pidió, palabras textuales: "centremonos en el Home ya que
+tenemos un MVP de la primera versión", con la lista completa de
+secciones que tiene que tener. Este cambio es 100% frontend + una
+consulta nueva — ninguna migración SQL.
+
+Orden final de `app/(tabs)/index.tsx` (de arriba hacia abajo, tal cual
+se pidió):
+
+1. **"Hola {nombre}"** — el nombre sale de la misma lista de
+   integrantes que ya trae `useFamilyMembers` (buscando el que matchea
+   `session.user.id`), no hizo falta un hook nuevo.
+2. **"{Nombre de la familia} — Nivel N"** — antes decía literal
+   "Domio — Nivel N"; ahora usa `useFamily(familyId)` (ya existía,
+   se usaba en la tab Familia) para traer el nombre real.
+3. **Mascota Domi** — sin cambios (`DomiAvatar`), solo se movió arriba
+   de la barra de XP (antes iba después).
+4. **Progreso de XP** — sin cambios de lógica, la barra + los números
+   + "Faltan N XP" (agregados el 2026-08-30 en el cambio anterior) +
+   la racha familiar.
+5. **"Mis misiones"** — cambio real de comportamiento, no solo
+   visual: antes mostraba las primeras 3 misiones PENDIENTES DE TODA
+   LA FAMILIA (visibles según RLS, que para el admin es todas). Ahora
+   filtra de verdad por "asignada a mí" (`type !== "family"` y mi
+   `family_member.id` está en `assignedTo`) — mismo criterio que ya
+   valida `complete_mission` del lado de la base desde
+   `0018_complete_mission_assignee_check.sql`. Como el filtro ya
+   garantiza que son completables por mí, esta sección ya NO necesita
+   el `lockedReason`/candado que se agregó en el fix anterior — todo
+   lo que aparece acá se puede completar con un tap. Gana un link
+   "Ver todas →" a la tab Misiones (`expo-router`'s `<Link>`, ya usado
+   en otras pantallas como `create-family.tsx`).
+6. **"Misiones familiares"** (card aparte, ya no "Reto familiar"):
+   reemplaza el card fijo hardcodeado (`38 / 50`, "Completar 50
+   misiones esta semana") por las misiones reales de tipo `family`
+   pendientes — cualquiera de la familia puede completarlas. El
+   mecanismo que pidió Stiven de "completá X esta semana y reciban tal
+   recompensa" queda para más adelante — por ahora es la lista real,
+   sin ninguna mecánica de progreso semanal todavía (ver "Próximos
+   pasos sugeridos").
+7. **"🤝 Equipo Domio"**: sección nueva, la única que necesitó una
+   consulta nueva. Muestra cuánto XP aportó cada integrante al Domio
+   ESTA SEMANA, con el subtítulo textual que pidió Stiven ("Así
+   estamos avanzando juntos.") y termina con el total. A propósito
+   **no está ordenada por XP** (ni con ningún indicador visual tipo
+   barra comparativa) — Stiven pidió explícitamente evitar que se
+   sienta como un ranking competitivo, así que los integrantes
+   aparecen en el mismo orden en que se unieron a la familia.
+
+   Implementado en `hooks/useFamily.ts`, hook nuevo
+   `useWeeklyContributions(familyId)`: sin ninguna migración nueva —
+   usa `mission_completions.xp_awarded`, que ya existe desde 0009 y
+   registra cuánto XP le sumó cada completada al Domio (no hay XP
+   individual, ver `0009_rewards_and_coins.sql`); acá se suma "al
+   revés", agrupado por `family_member_id`, para ver cuánto aportó
+   cada uno al total colectivo — no es una métrica nueva del lado de
+   la base, es la misma información mirada desde otro ángulo. Se
+   agregan a la cuenta las completadas desde el lunes 00:00 en
+   adelante, en la hora LOCAL del dispositivo (a diferencia de la
+   racha familiar de 0016, que corta el "día" según la zona horaria
+   del SERVIDOR — ahí no importaba tanto porque cuenta días ya
+   cerrados; acá el usuario espera que el contador arranque de nuevo
+   cada lunes según SU reloj). Se trae la lista de integrantes primero
+   para que quien no completó nada esta semana igual aparezca con
+   0 XP, en vez de faltar de la lista.
+
+   Se actualiza en vivo sin agregar ninguna suscripción de Realtime
+   nueva: `hooks/useRealtimeSync.ts` ya invalida `domio-progress` en
+   cada UPDATE de esa tabla (dispara con cada misión completada por
+   cualquiera en la familia) — se agregó una invalidación más de
+   `["weekly-contributions", familyId]` en ese mismo callback (mismo
+   patrón de "piggybackear en una suscripción que ya existe" que se
+   usó para la racha familiar en 0016_family_streak.sql).
+8. **"🎁 Recompensas disponibles"**: hasta 3 recompensas que YA se
+   pueden reclamar ahora mismo (nivel del Domio alcanzado, coins
+   suficientes, y sin bloqueo por límite de canjes) — mismas 3
+   condiciones que ya valida `redeem_reward`, reusadas acá solo para
+   filtrar qué mostrar (el botón de reclamar en sí sigue viviendo
+   únicamente en la tab Recompensas). Link "Ver todas →" a esa tab.
+9. **"🔜 Se desbloquea en el nivel N+1"**: recompensas cuyo
+   `minDomioLevel` es EXACTAMENTE el próximo nivel del Domio — un
+   teaser de "qué sigue", no de todo lo que falta a futuro. Si el
+   próximo nivel no desbloquea nada nuevo, muestra un mensaje neutro
+   en vez de esconder el card.
+
+Nota: se detectó (via `device_stage_files` + diff, hábito de siempre
+antes de tocar un archivo que Stiven podría haber editado a mano) que
+`app/(tabs)/index.tsx` tenía dos líneas de `console.log` de debug
+agregadas manualmente en el Mac, más una diferencia de formato de una
+línea (probablemente un auto-formatter). Como este cambio reescribe el
+archivo por completo para el rediseño, esos `console.log` de debug NO
+se preservaron — avisar si hacían falta para algo en curso.
+
+Pendiente de que Stiven pruebe el Home nuevo de punta a punta: que el
+saludo y el nombre de familia sean correctos, que "Mis misiones" ya
+NO muestre misiones de otros integrantes, que "Misiones familiares"
+liste las de tipo familiar pendientes, que "Equipo Domio" muestre el
+aporte semanal de cada uno (con 0 XP para quien no completó nada esta
+semana) y que las dos secciones de recompensas coincidan con lo que
+se ve en la tab Recompensas.
+
 ## Reset de datos de juego (2026-08-29)
 
 Para vaciar misiones/recompensas/progreso sin perder usuarios, familias
@@ -675,3 +952,11 @@ qué rol). Es irreversible — sin backup automático.
    es historial, no se lee desde ninguna pantalla ni tiene Realtime).
 4. Historial de canjes por integrante (`reward_redemptions` ya se
    registra, falta una pantalla que lo muestre).
+5. Mecánica de "reto semanal" en el card de Misiones familiares del
+   Home: completar X misiones familiares en la semana desbloquea una
+   recompensa — hoy el card solo lista las misiones familiares
+   pendientes (ver "Rediseño del Home"), sin ningún contador de
+   progreso ni recompensa asociada todavía.
+6. Racha individual por integrante (`family_members.streak_days`,
+   mostrada en la tab Familia) — sigue sin ninguna lógica que la
+   actualice, mismo estado que antes de la racha familiar de 0016.

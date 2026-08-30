@@ -74,3 +74,77 @@ export function useFamilyMembers(familyId: string | undefined) {
     enabled: !!familyId,
   });
 }
+
+export interface WeeklyContribution {
+  familyMemberId: string;
+  displayName: string;
+  xpThisWeek: number;
+}
+
+/**
+ * "EQUIPO DOMIO" en el Home (2026-08-30): cuánto XP aportó cada
+ * integrante al Domio esta semana. A propósito NO se ordena por XP
+ * (Stiven pidió explícitamente evitar que se sienta como un ranking
+ * competitivo: "Así estamos avanzando juntos.") — se devuelve en el
+ * mismo orden que useFamilyMembers (por fecha en que se unieron a la
+ * familia).
+ *
+ * `mission_completions.xp_awarded` es el XP que esa misión completada
+ * le sumó al Domio (no existe XP individual desde 0009_rewards_and_coins.sql)
+ * — acá se usa "al revés" para ver cuánto aportó cada integrante al
+ * total colectivo, no para puntuarlo a él. No hace falta filtrar por
+ * family_id a mano: la policy de SELECT de mission_completions
+ * ("Members can view their family's completions", 0001_init.sql) ya
+ * solo deja ver las completadas de tu propia familia.
+ *
+ * "Semana" = desde el lunes 00:00 hasta ahora, en la hora LOCAL del
+ * dispositivo (a diferencia de la racha familiar en
+ * 0016_family_streak.sql, que usa el día del SERVIDOR — ahí importaba
+ * menos porque cuenta días completos ya cerrados; acá el usuario
+ * espera que el contador arranque de nuevo cada lunes según SU
+ * reloj, así que el corte se calcula en el cliente).
+ */
+export function useWeeklyContributions(familyId: string | undefined) {
+  return useQuery({
+    queryKey: ["weekly-contributions", familyId],
+    queryFn: async (): Promise<WeeklyContribution[]> => {
+      const now = new Date();
+      const dayIndex = now.getDay(); // 0 = domingo ... 6 = sábado
+      const daysSinceMonday = (dayIndex + 6) % 7;
+      const startOfWeek = new Date(now);
+      startOfWeek.setHours(0, 0, 0, 0);
+      startOfWeek.setDate(startOfWeek.getDate() - daysSinceMonday);
+
+      // Traemos TODOS los integrantes primero — así quien no completó
+      // nada esta semana igual aparece con 0xp, en vez de faltar de
+      // la lista.
+      const { data: members, error: membersError } = await supabase
+        .from("family_members")
+        .select("id, profiles(display_name)")
+        .eq("family_id", familyId as string)
+        .order("joined_at", { ascending: true });
+
+      if (membersError) throw membersError;
+
+      const { data: completions, error: completionsError } = await supabase
+        .from("mission_completions")
+        .select("family_member_id, xp_awarded")
+        .eq("status", "completed")
+        .gte("completed_at", startOfWeek.toISOString());
+
+      if (completionsError) throw completionsError;
+
+      const totals = new Map<string, number>();
+      for (const c of completions ?? []) {
+        totals.set(c.family_member_id, (totals.get(c.family_member_id) ?? 0) + c.xp_awarded);
+      }
+
+      return (members ?? []).map((m: any) => ({
+        familyMemberId: m.id,
+        displayName: m.profiles?.display_name ?? "—",
+        xpThisWeek: totals.get(m.id) ?? 0,
+      }));
+    },
+    enabled: !!familyId,
+  });
+}
