@@ -129,6 +129,22 @@ export function useCompleteMission(familyId: string | undefined, userId: string 
         target_mission_id: missionId,
       });
       if (error) throw error;
+
+      // Racha familiar (0016_family_streak.sql): se recalcula ACA
+      // ademas de en hooks/useRealtimeSync.ts (que la recalcula cada
+      // vez que alguien abre la app) para que suba al toque el mismo
+      // dia en que se completa la primera mision, sin esperar a que
+      // alguien vuelva a entrar a la app. Es idempotente (recalcula
+      // desde el historial real, no incrementa un contador) asi que
+      // llamarla desde los dos lugares no genera doble conteo.
+      if (familyId) {
+        const { error: streakError } = await supabase.rpc("recompute_family_streak", {
+          target_family_id: familyId,
+        });
+        if (streakError) {
+          console.warn("No se pudo recalcular la racha familiar:", streakError.message);
+        }
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["missions", familyId] });

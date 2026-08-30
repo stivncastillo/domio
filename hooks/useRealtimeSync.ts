@@ -40,6 +40,20 @@
  * condicion de carrera: si la RPC insertara en mission_penalties ANTES
  * de que la suscripcion este lista, ese INSERT se perderia y el card
  * nunca aparecería para quien disparo el chequeo.
+ *
+ * ============================================================
+ * Racha familiar (0016_family_streak.sql)
+ * ============================================================
+ * Mismo criterio "bajo demanda" que arriba: `recompute_family_streak`
+ * se llama tambien en el mismo callback `SUBSCRIBED`, y ADEMAS justo
+ * despues de completar una mision (hooks/useMissions.ts,
+ * useCompleteMission) para que la racha suba al toque ese mismo dia.
+ * La funcion no incrementa un contador — recalcula la racha completa
+ * desde el historial de `mission_completions` cada vez, asi que
+ * llamarla desde dos lugares distintos no duplica nada. El UPDATE que
+ * hace sobre `domio_progress` ya dispara la suscripcion de arriba
+ * (domio_progress esta en Realtime desde 0007), asi que no hizo falta
+ * agregar una suscripcion nueva para esto.
  */
 import { useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -137,6 +151,17 @@ export function useRealtimeSync(familyId: string | undefined) {
               // intentar) — solo se loguea, no hace falta molestar al
               // usuario con un Alert por esto.
               console.warn("No se pudieron chequear misiones vencidas:", error.message);
+            }
+          });
+          // Racha familiar (0016_family_streak.sql): se recalcula acá
+          // tambien (ademas de en useCompleteMission) para cubrir el
+          // caso de que la racha se haya cortado mientras nadie tenia
+          // la app abierta — sin esto, un dia sin actividad podria
+          // quedar mostrando la racha vieja hasta la proxima mision
+          // completada.
+          supabase.rpc("recompute_family_streak", { target_family_id: familyId }).then(({ error }) => {
+            if (error) {
+              console.warn("No se pudo recalcular la racha familiar:", error.message);
             }
           });
         }

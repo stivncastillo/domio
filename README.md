@@ -339,6 +339,76 @@ misión obligatoria con vencimiento cercano (unos minutos) y volver a
 abrir la app después de esa hora para ver el card y la misión marcada
 como no cumplida.
 
+## Racha familiar + fix de la barra de progreso (2026-08-29)
+
+Dos pedidos juntos: implementar "la racha familiar" de verdad, y
+arreglar que la barra de XP del Domio no se veía visualmente.
+
+**Racha familiar** — mismo caso que `is_mandatory` antes de 0015:
+`domio_progress.family_streak_days` existe desde el scaffold original
+y ya se mostraba en el Dashboard ("🔥 Racha familiar: N días"), pero
+ninguna migración la actualizaba nunca — quedaba pegada en 0 para
+siempre.
+
+- **`supabase/migrations/0016_family_streak.sql`** (aplica en
+  cualquier instalación): función nueva `recompute_family_streak(family_id)`.
+  Interpretación (razonable, no confirmada palabra por palabra —
+  avisar si Stiven prefiere otro criterio): la racha cuenta días
+  calendario **consecutivos** en los que la familia completó **al
+  menos una misión** (cualquier integrante, cualquier tipo — mismo
+  criterio "colectivo" que ya usa el XP del Domio), y se corta apenas
+  pasa un día entero sin ninguna misión completada.
+- En vez de mantener un contador que se incrementa/resetea a mano, la
+  función **recalcula la racha desde cero** cada vez que se llama,
+  mirando el historial real en `mission_completions` — más simple y
+  sin estado que se pueda desincronizar. Se llama desde dos lugares
+  (mismo patrón "bajo demanda" que `process_overdue_missions` en
+  0015): al abrir la app (`hooks/useRealtimeSync.ts`) y justo después
+  de completar una misión (`hooks/useMissions.ts`, para que suba al
+  toque el mismo día). Como es idempotente, llamarla desde los dos
+  lugares no duplica nada.
+- No hizo falta agregar nada a Realtime: `domio_progress` ya está en
+  la publicación desde 0007, así que el `update` de la función dispara
+  la suscripción que ya existía.
+- **Limitación conocida**: el "día" se calcula con la zona horaria del
+  servidor de Postgres (UTC en Supabase por default), no con la zona
+  horaria de cada familia — alcanza para una app familiar por ahora.
+- **Ojo**: esto es la racha **familiar** (colectiva). La racha
+  **individual** (`family_members.streak_days`, la que se ve en la tab
+  Familia junto al nombre de cada integrante) sigue sin implementar —
+  Stiven pidió específicamente la familiar, la individual queda
+  pendiente de que la pida (tiene sus propias preguntas de diseño: si
+  cuenta cualquier misión o solo las asignadas a esa persona).
+
+**Barra de progreso invisible** — bug real encontrado en
+`components/ui/ProgressBar.tsx`, no un problema de datos. La versión
+anterior armaba el ancho así:
+
+```ts
+width: `${withTiming(pct, { duration: 500 })}%`
+```
+
+Eso no funciona en Reanimated: `withTiming(...)` no devuelve un
+número, devuelve un descriptor de animación que Reanimated solo sabe
+interpretar cuando se lo asigna DIRECTO a una propiedad del estilo
+(ej. `width: withTiming(120)` con píxeles). Meterlo adentro de un
+template string hace que JS lo convierta a texto antes de que
+Reanimated pueda hacer nada ("[object Object]%"), así que el `width`
+terminaba siendo inválido — la barra quedaba con ancho 0, invisible.
+Afectaba tanto a la barra de XP del Domio como a la de "Reto
+familiar" (las dos usan este mismo componente).
+
+Fix: un `useSharedValue` numérico (0-100) animado con `withTiming` en
+un `useEffect` cuando cambia `progress`, y el estilo arma el string
+`${pct.value}%` LEYENDO el shared value adentro del worklet de
+`useAnimatedStyle` — ahí sí es válido, porque lo que se interpola es
+un número plano en cada frame, no el descriptor de `withTiming` en sí.
+
+Pendiente de que Stiven confirme: correr `0016_family_streak.sql` en
+su SQL Editor, completar una misión y ver que la racha familiar suba
+en el Dashboard, y confirmar visualmente que la barra de XP del Domio
+ahora se ve y se anima.
+
 ## Curva de nivel del Domio (2026-08-26)
 
 Antes de esto el umbral para subir de nivel era fijo: nivel 1→2 ya
