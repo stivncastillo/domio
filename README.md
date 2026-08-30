@@ -927,6 +927,58 @@ aporte semanal de cada uno (con 0 XP para quien no completó nada esta
 semana) y que las dos secciones de recompensas coincidan con lo que
 se ve en la tab Recompensas.
 
+## Tab Perfil (2026-08-30)
+
+Primera implementación real de `app/(tabs)/profile.tsx` — hasta ahora
+era un placeholder ("Perfil — por implementar") con solo el botón de
+cerrar sesión suelto. Alcance acordado con Stiven: actualizar el
+nombre visible, cerrar sesión, y un resumen semanal de actividad
+propia (misiones completadas, XP aportado, monedas ganadas). Avatar y
+atuendos desbloqueados quedan pendientes — hoy no existe ningún
+sistema de atuendos en el resto de la app, así que no había nada real
+que mostrar ahí todavía.
+
+1. **Nombre visible, editable**: se lee de la misma fuente que ya usa
+   el resto de la app (`useFamilyMembers`, buscando el que matchea
+   `session.user.id` — mismo patrón que el saludo del Home), no un
+   hook separado para "mi perfil". Al guardar, `hooks/useProfile.ts`
+   (`useUpdateDisplayName`) hace un `update` directo sobre `profiles`
+   con `.eq("id", userId)` — la policy "A user can only edit their own
+   profile" (`0001_init.sql`) ya exige `id = auth.uid()` del lado del
+   servidor, así que no hizo falta ninguna RPC nueva ni migración. Como
+   esa policy de UPDATE no define un `with check` explícito, Postgres
+   usa el mismo `using (id = auth.uid())` para chequear la fila
+   resultante — no hay forma de que el update cambie el `id` a otra
+   fila. Al confirmar se invalidan `["family-members", familyId]` y
+   `["weekly-contributions", familyId]`, que es de donde cuelga el
+   nombre en el resto de las pantallas (Home, tab Familia) — así el
+   cambio se ve en toda la app sin recargar.
+
+2. **Resumen semanal personal** ("📆 Esta semana"): misiones
+   completadas, XP aportado al Domio y monedas ganadas, contando desde
+   el lunes 00:00 en la hora LOCAL del dispositivo — mismo criterio
+   exacto que "Equipo Domio" en el Home (`useWeeklyContributions`,
+   sección "Rediseño del Home" arriba), pero mirando un solo integrante
+   (yo) en vez de a toda la familia. Hook nuevo
+   `useWeeklyPersonalSummary(familyMemberId)` en `hooks/useProfile.ts`:
+   suma `xp_awarded` y `coins_awarded` de `mission_completions` filtrado
+   por `family_member_id` propio y `completed_at >= lunes 00:00` — sin
+   ninguna migración nueva, son columnas que ya existen desde
+   `0009_rewards_and_coins.sql`. No tiene una suscripción de Realtime
+   propia (a diferencia de "Equipo Domio", que se actualiza en vivo
+   piggybackeando en la suscripción de `domio_progress`) — el resumen
+   se refresca al volver a montar la pantalla (entrar a la tab), que
+   alcanza para el caso de uso ("¿cómo vengo esta semana?").
+
+3. **Cerrar sesión**: se conserva el botón (`supabase.auth.signOut()`),
+   ahora con una confirmación (`Alert.alert`) antes de salir — antes
+   cerraba sesión con un solo tap sin ningún aviso.
+
+Pendiente de que Stiven pruebe: que el nombre se guarde y se refleje
+en el Home/tab Familia sin recargar, y que el resumen semanal muestre
+0 en las tres métricas para alguien que no completó nada esta semana
+(en vez de quedar vacío o dar error).
+
 ## Reset de datos de juego (2026-08-29)
 
 Para vaciar misiones/recompensas/progreso sin perder usuarios, familias
@@ -960,3 +1012,7 @@ qué rol). Es irreversible — sin backup automático.
 6. Racha individual por integrante (`family_members.streak_days`,
    mostrada en la tab Familia) — sigue sin ninguna lógica que la
    actualice, mismo estado que antes de la racha familiar de 0016.
+7. Avatar y atuendos desbloqueables en la tab Perfil — mencionado en el
+   placeholder original pero todavía no existe ningún sistema de
+   atuendos en el resto de la app (qué los desbloquea, dónde se
+   guardan, cómo se equipan) para implementarlo de verdad.
